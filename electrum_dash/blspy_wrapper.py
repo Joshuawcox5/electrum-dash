@@ -1,14 +1,25 @@
 # -*- coding: utf-8 -*-
 
 import sys
+import logging
 from .util import bh2u
+
+# Configure logger
+logging.basicConfig(
+    filename="blspy_wrapper.log",
+    filemode="a",
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.ERROR
+)
+logger = logging.getLogger(__name__)
 
 try:
     from blspy import BasicSchemeMPL, G1Element, G2Element, PrivateKey, PublicKey
 
     import_success = True
     load_libdashbls = False
-except ImportError:
+except ImportError as e:
+    logger.error(f"ImportError: {str(e)}")
     import_success = False
     load_libdashbls = True
 
@@ -37,30 +48,20 @@ if load_libdashbls:
     else:
         name = 'libdashbls.so'
 
-    # try:
-    #     ldashbls = cdll.LoadLibrary(name)
-    #
-    #     ldashbls.bls_basic_verify.argtypes = [ctypes.c_char_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_char_p]
-    #     ldashbls.bls_basic_verify.restype = ctypes.c_bool
-    #
-    #     ldashbls.bls_basic_keygen.argtypes = [ctypes.c_char_p]
-    #     ldashbls.bls_basic_keygen.restype = KeyPair
-    #
-    #     ldashbls.bls_basic_sign.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
-    #     ldashbls.bls_basic_sign.restype = Signature
-    # except:
-    #   load_libdashbls = False
+    try:
+        ldashbls = cdll.LoadLibrary(name)
 
-    ldashbls = cdll.LoadLibrary(name)
+        ldashbls.bls_basic_verify.argtypes = [ctypes.c_char_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_char_p]
+        ldashbls.bls_basic_verify.restype = ctypes.c_bool
 
-    ldashbls.bls_basic_verify.argtypes = [ctypes.c_char_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_char_p]
-    ldashbls.bls_basic_verify.restype = ctypes.c_bool
+        ldashbls.bls_basic_keygen.argtypes = [ctypes.c_char_p]
+        ldashbls.bls_basic_keygen.restype = KeyPair
 
-    ldashbls.bls_basic_keygen.argtypes = [ctypes.c_char_p]
-    ldashbls.bls_basic_keygen.restype = KeyPair
-
-    ldashbls.bls_basic_sign.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
-    ldashbls.bls_basic_sign.restype = Signature
+        ldashbls.bls_basic_sign.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+        ldashbls.bls_basic_sign.restype = Signature
+    except Exception as e:
+        logger.error(f"Exception: {str(e)}")
+        load_libdashbls = False
 
 if load_libdashbls:
 
@@ -165,4 +166,5 @@ if load_libdashbls:
             raise NotImplementedError("get_g1 method is not implemented in the fallback PrivateKey class.")
 
 if not import_success and not load_libdashbls:
+    logger.error("Can not import blspy.")
     raise ImportError('Can not import blspy')
