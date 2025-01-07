@@ -14,12 +14,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 try:
-    from blspy import BasicSchemeMPL, G1Element, G2Element, PrivateKey, PublicKey
+    from blspy import BasicSchemeMPL, G1Element, G2Element, PrivateKey
 
     import_success = True
     load_libdashbls = False
 except ImportError as e:
-    logger.error(f"ImportError: {str(e)}")
+    print(f"ImportError: {str(e)}")
     import_success = False
     load_libdashbls = True
 
