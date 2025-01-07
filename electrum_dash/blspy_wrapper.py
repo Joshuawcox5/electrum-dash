@@ -37,19 +37,30 @@ if load_libdashbls:
     else:
         name = 'libdashbls.so'
 
-    try:
-        ldashbls = cdll.LoadLibrary(name)
+    # try:
+    #     ldashbls = cdll.LoadLibrary(name)
+    #
+    #     ldashbls.bls_basic_verify.argtypes = [ctypes.c_char_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_char_p]
+    #     ldashbls.bls_basic_verify.restype = ctypes.c_bool
+    #
+    #     ldashbls.bls_basic_keygen.argtypes = [ctypes.c_char_p]
+    #     ldashbls.bls_basic_keygen.restype = KeyPair
+    #
+    #     ldashbls.bls_basic_sign.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+    #     ldashbls.bls_basic_sign.restype = Signature
+    # except:
+    #   load_libdashbls = False
 
-        ldashbls.bls_basic_verify.argtypes = [ctypes.c_char_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_char_p]
-        ldashbls.bls_basic_verify.restype = ctypes.c_bool
+    ldashbls = cdll.LoadLibrary(name)
 
-        ldashbls.bls_basic_keygen.argtypes = [ctypes.c_char_p]
-        ldashbls.bls_basic_keygen.restype = KeyPair
+    ldashbls.bls_basic_verify.argtypes = [ctypes.c_char_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_char_p]
+    ldashbls.bls_basic_verify.restype = ctypes.c_bool
 
-        ldashbls.bls_basic_sign.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
-        ldashbls.bls_basic_sign.restype = Signature
-    except:
-      load_libdashbls = False
+    ldashbls.bls_basic_keygen.argtypes = [ctypes.c_char_p]
+    ldashbls.bls_basic_keygen.restype = KeyPair
+
+    ldashbls.bls_basic_sign.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+    ldashbls.bls_basic_sign.restype = Signature
 
 if load_libdashbls:
 

@@ -28,7 +28,6 @@ import struct
 from collections import namedtuple
 from enum import IntEnum
 from ipaddress import ip_address, IPv6Address
-# import blspy
 from bls_py import bls
 
 from .util import bh2u, bfh, pack_varint
