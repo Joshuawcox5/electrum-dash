@@ -5,7 +5,6 @@ from .util import bh2u
 
 try:
     from blspy import BasicSchemeMPL, G1Element, G2Element, PrivateKey, PublicKey
-    # raise ImportError()
 
     import_success = True
     load_libdashbls = False
@@ -36,8 +35,7 @@ if load_libdashbls:
     elif sys.platform in ('windows', 'win32'):
         name = 'libdashbls-0.dll'
     else:
-        # name = 'libdashbls.so'
-        name = '/home/lexx/workspace/development/bls-signatures/build/dist/lib/libdashbls.so'
+        name = 'libdashbls.so'
 
     try:
         ldashbls = cdll.LoadLibrary(name)
