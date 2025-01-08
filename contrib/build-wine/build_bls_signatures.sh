@@ -2,8 +2,8 @@
 
 set -ev
 
-export BLS_SIGNATURES_REPO="https://github.com/LexxXell/electrum-dash"
-export BLS_SIGNATURES_HASH_COMMIT="1bdbe02837121c899038b482c1e842e9170edec7"
+export BLS_SIGNATURES_REPO="https://github.com/LexxXell/bls-signatures"
+export BLS_SIGNATURES_HASH_COMMIT="3f1e40d53babb25c331691f12d23ca082c041d5b"
 
 echo "Building dashpay/bls-signatures for $WINEARCH."
 export PROJ_ROOT=$WINEPREFIX/drive_c/electrum-dash
