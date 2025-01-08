@@ -35,6 +35,7 @@ from .bitcoin import COIN
 from .crypto import sha256d
 from .i18n import _
 
+from .blspy_wrapper import BasicSchemeMPL, G1Element, G2Element, PrivateKey
 
 def tx_header_to_tx_type(tx_header_bytes):
     tx_header = struct.unpack('<I', tx_header_bytes)[0]
@@ -404,14 +405,15 @@ class DashProUpServTx(ProTxBase):
 
     __slots__ = ('version proTxHash ipAddress port '
                  'scriptOperatorPayout inputsHash '
-                 'payloadSig').split()
+                 'payloadSig mn_type').split()
 
     def __str__(self):
-        res = ('ProUpServTx Version: %s\n'
-               'proTxHash: %s\n'
+        res = ('ProUpServTx Version: %s\n' % self.version)
+        if hasattr(self, 'mn_type'):  # Check if mn_type exists
+            res += ('Masternode type: %s\n' % self.mn_type)
+        res += ('proTxHash: %s\n'
                'ipAddress: %s, port: %s\n'
-               % (self.version,
-                  bh2u(self.proTxHash[::-1]),
+               % (bh2u(self.proTxHash[::-1]),
                   self.ipAddress, self.port))
         if self.scriptOperatorPayout:
             res += ('scriptOperatorPayout: %s\n' %
@@ -425,22 +427,34 @@ class DashProUpServTx(ProTxBase):
             f'{len(self.inputsHash)} not 32'
         assert len(self.payloadSig) == 96, \
             f'{len(self.payloadSig)} not 96'
+
         ipAddress = ip_address(self.ipAddress)
         ipAddress = serialize_ip(ipAddress)
         payloadSig = self.payloadSig if full else b''
-        return (
-            struct.pack('<H', self.version) +           # version
-            self.proTxHash +                            # proTxHash
-            ipAddress +                                 # ipAddress
-            struct.pack('>H', self.port) +              # port
-            to_varbytes(self.scriptOperatorPayout) +    # scriptOperatorPayout
-            self.inputsHash +                           # inputsHash
-            payloadSig                                  # payloadSig
+
+        serialized = struct.pack('<H', self.version)  # version
+
+        if self.version >= 2:  # Include mn_type for version >= 2
+            assert hasattr(self, 'mn_type'), "mn_type is required for version >= 2"
+            serialized += struct.pack('<H', self.mn_type)  # mn_type
+
+        serialized += (
+                self.proTxHash +  # proTxHash
+                ipAddress +  # ipAddress
+                struct.pack('>H', self.port) +  # port
+                to_varbytes(self.scriptOperatorPayout) +  # scriptOperatorPayout
+                self.inputsHash +  # inputsHash
+                payloadSig  # payloadSig
         )
+
+        return serialized
 
     @classmethod
     def read_vds(cls, vds):
+        mn_type = None
         version = vds.read_uint16()                     # version
+        if version >= 2:
+            mn_type = vds.read_uint16()                 # TX Type
         proTxHash = vds.read_bytes(32)                  # proTxHash
         ipAddress = vds.read_bytes(16)                  # ipAddress
         port = read_uint16_nbo(vds)                     # port
@@ -454,7 +468,7 @@ class DashProUpServTx(ProTxBase):
         else:
             ipAddress = str(ipAddress)
         return DashProUpServTx(version, proTxHash, ipAddress, port,
-                               scriptOperatorPayout, inputsHash, payloadSig)
+                               scriptOperatorPayout, inputsHash, payloadSig, mn_type)
 
     def update_with_tx_data(self, tx):
         outpoints = [TxOutPoint(bfh(i.prevout.txid.hex())[::-1],
@@ -464,18 +478,52 @@ class DashProUpServTx(ProTxBase):
         self.inputsHash = sha256d(b''.join(outpoints_ser))
 
     def update_before_sign(self, tx, wallet, password):
-        protx_hash = bh2u(self.proTxHash[::-1])
+        protx_hash = bh2u(self.proTxHash[::-1])  # Get the proTxHash in the required format
         manager = wallet.protx_manager
         bls_privk_bytes = None
+
+        # Find the operator's private key for the given proTxHash
         for mn in manager.mns.values():
             if protx_hash == mn.protx_hash:
-                bls_privk_bytes = bfh(mn.bls_privk)
+                bls_privk_bytes = bfh(mn.bls_privk)  # Convert hex to bytes
                 break
+
         if not bls_privk_bytes:
-            return
-        bls_privk = bls.PrivateKey.from_bytes(bls_privk_bytes)
-        bls_sig = bls_privk.sign_prehashed(sha256d(self.serialize(full=False)))
-        self.payloadSig = bls_sig.serialize()
+            raise ValueError("Operator's private key not found for the given proTxHash.")
+
+        # Serialize data without a signature
+        serialized_data = self.serialize(full=False)
+
+        if self.version == 1:
+            # Version 1: Use legacy BLS scheme
+            # Create a private key using the legacy BLS scheme for version 1
+            bls_privk = bls.PrivateKey.from_bytes(bls_privk_bytes)
+
+            # Hash the data
+            serialized_hash = sha256d(serialized_data)
+
+            # Sign using the legacy BLS scheme
+            bls_sig = bls_privk.sign_prehashed(serialized_hash)
+
+            bls_sig_bytes = bls_sig.serialize()
+
+        elif self.version == 2:
+            # Version 2: Use the new BLS scheme (BasicSchemeMPL)
+            # Create a private key using G2Element for version 2
+            bls_privk = PrivateKey.from_bytes(bls_privk_bytes)
+
+            # Hash the data with the key type
+            serialized_hash = sha256d(serialized_data)
+
+            # Sign using BasicSchemeMPL
+            bls_sig = BasicSchemeMPL.sign(bls_privk, serialized_hash)
+
+            bls_sig_bytes = bls_sig.__bytes__()
+
+        else:
+            raise ValueError(f"Unsupported ProUpServTx version: {self.version}")
+
+        self.payloadSig = bls_sig_bytes
 
 
 class DashProUpRegTx(ProTxBase):

@@ -23,6 +23,7 @@ from electrum_dash.i18n import _
 
 from .util import MONOSPACE_FONT, icon_path, read_QIcon, ButtonsLineEdit
 
+from electrum_dash.blspy_wrapper import BasicSchemeMPL
 
 def is_p2pkh_address(addr):
     if is_b58_address(addr):
@@ -733,10 +734,14 @@ class BlsKeysWizardPage(QWizardPage):
 
     def generate_bls_keypair(self):
         random_seed = bytes(os.urandom(32))
-        bls_privk = bls.PrivateKey.from_seed(random_seed)
-        bls_pubk = bls_privk.get_public_key()
-        bls_privk_hex = bh2u(bls_privk.serialize())
-        bls_pubk_hex = bh2u(bls_pubk.serialize())
+
+        bls_privk = BasicSchemeMPL.key_gen(random_seed)
+
+        bls_pubk = bls_privk.get_g1()
+
+        bls_privk_hex = bls_privk.__bytes__().hex()
+        bls_pubk_hex = bls_pubk.__bytes__().hex()
+
         self.bls_info_label.setText(_('BLS keypair generated. Before '
                                       'registering new Masternode copy next '
                                       'line to ~/.dashcore/dash.conf and '
