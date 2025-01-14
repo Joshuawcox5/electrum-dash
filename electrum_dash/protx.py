@@ -362,7 +362,7 @@ class ProTxManager(Logger):
         PubKeyOperator = bfh(mn.pubkey_operator)
         KeyIdVoting = b58_address_to_hash160(mn.voting_addr)[1]
 
-        tx = DashProUpRegTx(1, bfh(mn.protx_hash)[::-1], mn.mode,
+        tx = DashProUpRegTx(2, bfh(mn.protx_hash)[::-1], mn.mode,
                             PubKeyOperator, KeyIdVoting, scriptPayout,
                             b'\x00'*32, b'\x00'*65)
         return tx
