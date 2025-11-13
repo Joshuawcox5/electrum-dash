@@ -1995,7 +1995,7 @@ class ExportToFileWizardPage(QWizardPage):
         self.aliases = []
 
     def initializePage(self):
-        self.parent.setButtonText(QWizard.CommitButton, 'Saveppppp')
+        self.parent.setButtonText(QWizard.CommitButton, 'Save')
         self.aliases = [i.text() for i in self.lw_aliases.selectedItems()]
 
     @pyqtSlot()

@@ -28,7 +28,6 @@ import struct
 from collections import namedtuple
 from enum import IntEnum
 from ipaddress import ip_address, IPv6Address
-import blspy
 from bls_py import bls
 
 from .util import bh2u, bfh, pack_varint
@@ -36,7 +35,7 @@ from .bitcoin import COIN
 from .crypto import sha256d
 from .i18n import _
 
-from .blspy_wrapper import BasicSchemeMPL, G1Element, G2Element
+from .blspy_wrapper import BasicSchemeMPL, G1Element, G2Element, PrivateKey
 
 def tx_header_to_tx_type(tx_header_bytes):
     tx_header = struct.unpack('<I', tx_header_bytes)[0]
@@ -623,7 +622,7 @@ class DashProUpServTx(ProTxBase):
         elif self.version == 2:
             # Version 2: Use the new BLS scheme (BasicSchemeMPL)
             # Create a private key using G2Element for version 2
-            bls_privk = blspy.PrivateKey.from_bytes(bls_privk_bytes)
+            bls_privk = PrivateKey.from_bytes(bls_privk_bytes)
 
             # Hash the data with the key type
             serialized_hash = sha256d(serialized_data)
