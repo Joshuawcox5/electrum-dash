@@ -310,7 +310,23 @@ class DashProRegTx(ProTxBase):
         else:
             ipAddress = b'\x00' * 16
             port = 0
-        payloadSig = to_varbytes(self.payloadSig) if full else b''
+
+        # Serialize payloadSig depending on payload version and mode
+        if self.version < 2:
+            # legacy: payloadSig is CompactSize + bytes
+            payload_sig_bytes = to_varbytes(self.payloadSig) if full else b''
+        else:
+            # v2+: payloadSig has NO CompactSize prefix; it is fixed-length bytes
+            if full:
+                # ProRegTx v2 "legacy/basic" BLS signature may be 90 or 96 bytes on wire
+                sig_len = len(self.payloadSig)
+                if sig_len not in (90, 96):
+                    raise ValueError(f'payloadSig length must be 90 or 96 (got {sig_len})')
+                payload_sig_bytes = self.payloadSig
+            else:
+                # When signing/producing hash to sign, payloadSig must be excluded
+                payload_sig_bytes = b''
+
         return (
             struct.pack('<H', self.version) +           # version
             struct.pack('<H', self.type) +              # type
@@ -324,7 +340,7 @@ class DashProRegTx(ProTxBase):
             struct.pack('<H', self.operatorReward) +    # operatorReward
             to_varbytes(self.scriptPayout) +            # scriptPayout
             self.inputsHash +                           # inputsHash
-            payloadSig                                  # payloadSig
+            payload_sig_bytes                           # payloadSig
         )
 
     @classmethod
@@ -341,7 +357,17 @@ class DashProRegTx(ProTxBase):
         operatorReward = vds.read_uint16()              # operatorReward
         scriptPayout = read_varbytes(vds)               # scriptPayout
         inputsHash = vds.read_bytes(32)                 # inputsHash
-        payloadSig = read_varbytes(vds)                 # payloadSig
+
+        if version < 2:
+            # Old payloads use CompactSize-prefixed varbytes signature
+            payloadSig = read_varbytes(vds)
+        else:
+            # In v2+ payloadSig is fixed-length (BLS signature)
+            remaining = len(vds.input) - vds.read_cursor
+            # BLS Basic signatures are usually 96 bytes, but legacy could be 90
+            if remaining not in (90, 96):
+                raise ValueError(f"Unexpected payloadSig size: {remaining} bytes")
+            payloadSig = vds.read_bytes(remaining)
 
         ipAddress = ip_address(bytes(ipAddress))
         if ipAddress.ipv4_mapped:
