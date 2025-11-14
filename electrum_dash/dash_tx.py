@@ -161,10 +161,13 @@ class TxOutPoint(namedtuple('TxOutPoint', 'hash index')):
 
 class CTxIn(namedtuple('CTxIn', 'hash index scriptSig sequence')):
     '''Class representing tx input'''
+
     def __str__(self):
-        return ('CTxIn: %s:%s, scriptSig=%s, sequeence=%s' %
-                (bh2u(self.hash[::-1]), self.index,
-                 self.scriptSig, self.sequence))
+        return (
+            f"CTxIn: {bh2u(self.hash[::-1])}:{self.index}, "
+            f"scriptSig={self.scriptSig}, "
+            f"sequence={self.sequence}"
+        )
 
     @classmethod
     def read_vds(cls, vds):
@@ -188,10 +191,13 @@ class CTxIn(namedtuple('CTxIn', 'hash index scriptSig sequence')):
 
 class CTxOut(namedtuple('CTxOut', 'value scriptPubKey')):
     '''Class representing tx output'''
+
     def __str__(self):
-        return ('CTxOut: %s:%s, scriptPubKey=%s, sequeence=%s' %
-                (bh2u(self.hash[::-1]), self.index,
-                 self.scriptPubKey, self.sequence))
+        return (
+            f"CTxOut: {bh2u(self.hash[::-1])}:{self.index}, "
+            f"scriptPubKey={self.scriptPubKey}, "
+            f"sequence={self.sequence}"
+        )
 
     @classmethod
     def read_vds(cls, vds):
@@ -276,23 +282,17 @@ class DashProRegTx(ProTxBase):
         self.payload_sig_msg_part = ''
 
     def __str__(self):
-        return ('ProRegTx Version: %s\n'
-                'type: %s, mode: %s\n'
-                'collateral: %s\n'
-                'ipAddress: %s, port: %s\n'
-                'KeyIdOwner: %s\n'
-                'PubKeyOperator: %s\n'
-                'KeyIdVoting: %s\n'
-                'operatorReward: %s\n'
-                'scriptPayout: %s\n'
-                % (self.version, self.type, self.mode,
-                   self.collateralOutpoint,
-                   self.ipAddress, self.port,
-                   bh2u(self.KeyIdOwner),
-                   bh2u(self.PubKeyOperator),
-                   bh2u(self.KeyIdVoting),
-                   self.operatorReward,
-                   bh2u(self.scriptPayout)))
+        return (
+            f"ProRegTx Version: {self.version}\n"
+            f"type: {self.type}, mode: {self.mode}\n"
+            f"collateral: {self.collateralOutpoint}\n"
+            f"ipAddress: {self.ipAddress}, port: {self.port}\n"
+            f"KeyIdOwner: {bh2u(self.KeyIdOwner)}\n"
+            f"PubKeyOperator: {bh2u(self.PubKeyOperator)}\n"
+            f"KeyIdVoting: {bh2u(self.KeyIdVoting)}\n"
+            f"operatorReward: {self.operatorReward}\n"
+            f"scriptPayout: {bh2u(self.scriptPayout)}\n"
+        )
 
     def serialize(self, full=True):
         assert len(self.KeyIdOwner) == 20, \
@@ -646,18 +646,14 @@ class DashProUpRegTx(ProTxBase):
                  'payloadSig').split()
 
     def __str__(self):
-        return ('ProUpRegTx Version: %s\n'
-                'proTxHash: %s\n'
-                'mode: %s\n'
-                'PubKeyOperator: %s\n'
-                'KeyIdVoting: %s\n'
-                'scriptPayout: %s\n'
-                % (self.version,
-                   bh2u(self.proTxHash[::-1]),
-                   self.mode,
-                   bh2u(self.PubKeyOperator),
-                   bh2u(self.KeyIdVoting),
-                   bh2u(self.scriptPayout)))
+        return (
+            f"ProUpRegTx Version: {self.version}\n"
+            f"proTxHash: {bh2u(self.proTxHash[::-1])}\n"
+            f"mode: {self.mode}\n"
+            f"PubKeyOperator: {bh2u(self.PubKeyOperator)}\n"
+            f"KeyIdVoting: {bh2u(self.KeyIdVoting)}\n"
+            f"scriptPayout: {bh2u(self.scriptPayout)}\n"
+        )
 
     def serialize(self, full=True):
         assert len(self.proTxHash) == 32, \
@@ -741,12 +737,11 @@ class DashProUpRevTx(ProTxBase):
                  'inputsHash payloadSig').split()
 
     def __str__(self):
-        return ('ProUpRevTx Version: %s\n'
-                'proTxHash: %s\n'
-                'reason: %s\n'
-                % (self.version,
-                   bh2u(self.proTxHash[::-1]),
-                   revoke_reason_str(self.reason)))
+        return (
+            f"ProUpRevTx Version: {self.version}\n"
+            f"proTxHash: {bh2u(self.proTxHash[::-1])}\n"
+            f"reason: {revoke_reason_str(self.reason)}\n"
+        )
 
     def serialize(self, full=True):
         assert len(self.proTxHash) == 32, \
@@ -802,21 +797,20 @@ class DashCbTx(ProTxBase):
     __slots__ = ('version height merkleRootMNList merkleRootQuorums bestCLHeightDiff bestCLSignature assetLockedAmount').split()
 
     def __str__(self):
-        res = ('CbTx Version: %s\n'
-               'height: %s\n'
-               'merkleRootMNList: %s\n'
-               % (self.version, self.height,
-                  bh2u(self.merkleRootMNList[::-1])))
+        res = (
+            f"CbTx Version: {self.version}\n"
+            f"height: {self.height}\n"
+            f"merkleRootMNList: {bh2u(self.merkleRootMNList[::-1])}\n"
+        )
+
         if self.version > 1:
-            res += ('merkleRootQuorums: %s\n' %
-                    bh2u(self.merkleRootQuorums[::-1]))
+            res += f"merkleRootQuorums: {bh2u(self.merkleRootQuorums[::-1])}\n"
+
         if self.version > 2:
-            res += ('bestCLHeightDiff: %s\n' %
-                    self.bestCLHeightDiff)
-            res += ('bestCLSignature: %s\n' %
-                    bh2u(self.bestCLSignature[::-1]))
-            res += ('assetLockedAmount: %s\n' %
-                    self.assetLockedAmount)
+            res += f"bestCLHeightDiff: {self.bestCLHeightDiff}\n"
+            res += f"bestCLSignature: {bh2u(self.bestCLSignature[::-1])}\n"
+            res += f"assetLockedAmount: {self.assetLockedAmount}\n"
+
         return res
 
     def serialize(self):
@@ -870,17 +864,17 @@ class AssetLockTx(ProTxBase):
 
     def __str__(self):
         outputs_str = '\n'.join(
-            ['  - Value: {}\n    ScriptPubKey: {}'.format(
-                credit_output[0], bh2u(credit_output[1])) for credit_output in self.creditOutputs])
-        return ('AssetLockTx\n'
-                'Version: {}\n'
-                'Count: {}\n'
-                'Credit Outputs:\n{}\n'
-                .format(
-                    self.version,
-                    self.count,
-                    outputs_str
-                ))
+            f"  - Value: {value}\n    ScriptPubKey: {bh2u(script)}"
+            for value, script in self.creditOutputs
+        )
+
+        return (
+            "AssetLockTx\n"
+            f"Version: {self.version}\n"
+            f"Count: {self.count}\n"
+            "Credit Outputs:\n"
+            f"{outputs_str}\n"
+        )
 
     def serialize(self):
         res = b''
@@ -916,21 +910,15 @@ class AssetUnlockTx(ProTxBase):
         self.quorumSig = quorumSig          # quorumSig (bytes(96))
 
     def __str__(self):
-        return ('AssetUnlockTx\n'
-                'Version: {}\n'
-                'Index: {}\n'
-                'Fee: {}\n'
-                'Sign Height: {}\n'
-                'Quorum Hash: {}\n'
-                'Quorum Signature: {}\n'
-                .format(
-                    self.version,
-                    self.index,
-                    self.fee,
-                    self.signHeight,
-                    bh2u(self.quorumHash[::-1]),
-                    bh2u(self.quorumSig)
-                ))
+        return (
+            "AssetUnlockTx\n"
+            f"Version: {self.version}\n"
+            f"Index: {self.index}\n"
+            f"Fee: {self.fee}\n"
+            f"Sign Height: {self.signHeight}\n"
+            f"Quorum Hash: {bh2u(self.quorumHash[::-1])}\n"
+            f"Quorum Signature: {bh2u(self.quorumSig)}\n"
+        )
 
     def serialize(self):
         res = b''
