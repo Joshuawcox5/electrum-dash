@@ -431,47 +431,100 @@ class DashProUpServTx(ProTxBase):
 
     __slots__ = ('version proTxHash ipAddress port '
                  'scriptOperatorPayout inputsHash '
-                 'payloadSig mn_type').split()
+                 'payloadSig mn_type '
+                 'platformNodeID platformP2PPort platformHTTPPort'
+                 ).split()
 
     def __str__(self):
-        res = ('ProUpServTx Version: %s\n' % self.version)
-        if hasattr(self, 'mn_type'):  # Check if mn_type exists
-            res += ('Masternode type: %s\n' % self.mn_type)
-        res += ('proTxHash: %s\n'
-               'ipAddress: %s, port: %s\n'
-               % (bh2u(self.proTxHash[::-1]),
-                  self.ipAddress, self.port))
+        res = (f'ProUpServTx Version: {self.version}\n')
+        if getattr(self, 'mn_type', None) is not None:
+            res += (f'Masternode type: {self.mn_type}\n')
+        res += (
+            f'proTxHash: {bh2u(self.proTxHash[::-1])}\n'
+            f'ipAddress: {self.ipAddress}, port: {self.port}\n'
+        )
         if self.scriptOperatorPayout:
-            res += ('scriptOperatorPayout: %s\n' %
-                    bh2u(self.scriptOperatorPayout))
+            res += f'scriptOperatorPayout: {bh2u(self.scriptOperatorPayout)}\n'
+        if getattr(self, 'mn_type', 0) == 1:
+            if getattr(self, 'platformNodeID', b''):
+                res += f'platformNodeID: {bh2u(self.platformNodeID)}\n'
+            if getattr(self, 'platformP2PPort', None) is not None:
+                res += f'platformP2PPort: {self.platformP2PPort}\n'
+            if getattr(self, 'platformHTTPPort', None) is not None:
+                res += f'platformHTTPPort: {self.platformHTTPPort}\n'
         return res
 
     def serialize(self, full=True):
-        assert len(self.proTxHash) == 32, \
-            f'{len(self.proTxHash)} not 32'
-        assert len(self.inputsHash) == 32, \
-            f'{len(self.inputsHash)} not 32'
-        assert len(self.payloadSig) == 96, \
-            f'{len(self.payloadSig)} not 96'
+        """
+        Serialize ProUpServTx extra payload (DIP3 / DIP23).
 
-        ipAddress = ip_address(self.ipAddress)
-        ipAddress = serialize_ip(ipAddress)
-        payloadSig = self.payloadSig if full else b''
+        Supports both legacy (v1) and current (v2) formats.
 
-        serialized = struct.pack('<H', self.version)  # version
+        Layout:
+          version            (uint16 LE)
+          [mn_type]          (uint16 LE)               # only for version >= 2
+          proTxHash          (32 bytes, LE)
+          ipAddress          (16 bytes, IPv6 mapped, network byte order)
+          port               (uint16 BE, "network byte order")
+          scriptOperatorPayout (varbytes: CompactSize + script)
+          inputsHash         (32 bytes, LE)
+          [platformNodeID]   (20 bytes, optional for mn_type == 1)
+          [platformP2PPort]  (uint16 BE, optional)
+          [platformHTTPPort] (uint16 BE, optional)
+          payloadSig:
+              - v1: CompactSize + bytes (legacy BLS)
+              - v2: raw bytes (90–96), no prefix (basic BLS)
+        """
+        # --- sanity checks ---
+        assert len(self.proTxHash) == 32, f'{len(self.proTxHash)} not 32'
+        assert len(self.inputsHash) == 32, f'{len(self.inputsHash)} not 32'
 
-        if self.version >= 2:  # Include mn_type for version >= 2
-            assert hasattr(self, 'mn_type'), "mn_type is required for version >= 2"
-            serialized += struct.pack('<H', self.mn_type)  # mn_type
+        # Normalize and serialize IP + port
+        ip_obj = ip_address(self.ipAddress)
+        ip_bytes = serialize_ip(ip_obj)  # always 16 bytes IPv6-mapped
+        assert len(ip_bytes) == 16, 'serialized IP must be 16 bytes'
+        port_be = struct.pack('>H', self.port)  # network byte order (big-endian)
 
+        # Determine signature serialization
+        if full:
+            if getattr(self, 'version', 1) < 2:
+                # --- Legacy (v1): signature uses CompactSize prefix ---
+                payloadSig = to_varbytes(self.payloadSig)
+            else:
+                # --- v2+: raw signature, no prefix ---
+                assert len(self.payloadSig) in (90, 96), \
+                    f'Unexpected payloadSig length {len(self.payloadSig)} (expected 90/96)'
+                payloadSig = self.payloadSig
+        else:
+            payloadSig = b''
+
+        # --- Begin writing ---
+        serialized = struct.pack('<H', self.version)  # payloadVersion (LE)
+
+        # Add masternode type if present (v2+)
+        if getattr(self, 'mn_type', None) is not None:
+            serialized += struct.pack('<H', self.mn_type)
+
+        # Common fields
         serialized += (
                 self.proTxHash +  # proTxHash
-                ipAddress +  # ipAddress
-                struct.pack('>H', self.port) +  # port
-                to_varbytes(self.scriptOperatorPayout) +  # scriptOperatorPayout
-                self.inputsHash +  # inputsHash
-                payloadSig  # payloadSig
+                ip_bytes +  # ipAddress (IPv6 mapped)
+                port_be +  # port (BE)
+                to_varbytes(self.scriptOperatorPayout or b'') +  # scriptOperatorPayout
+                self.inputsHash  # inputsHash
         )
+
+        # --- Optional platform fields (v2 type-1 only) ---
+        platformNodeID = getattr(self, 'platformNodeID', b'') or b''
+        if platformNodeID:
+            # 20-byte NodeID + two BE ports (present only if mn_type == 1)
+            assert len(platformNodeID) == 20, 'platformNodeID must be 20 bytes'
+            serialized += platformNodeID
+            serialized += struct.pack('<H', self.platformP2PPort)  # Discrepancy with documentation. According to the documentation, BE (network byte order), but actually accepts LE.
+            serialized += struct.pack('<H', self.platformHTTPPort) # Discrepancy with documentation. According to the documentation, BE (network byte order), but actually accepts LE.
+
+        # --- Append payload signature ---
+        serialized += payloadSig
 
         return serialized
 
@@ -486,15 +539,48 @@ class DashProUpServTx(ProTxBase):
         port = read_uint16_nbo(vds)                     # port
         scriptOperatorPayout = read_varbytes(vds)       # scriptOperatorPayout
         inputsHash = vds.read_bytes(32)                 # inputsHash
-        payloadSig = vds.read_bytes(96)                 # payloadSig
+        if version >= 2 and mn_type == 1:
+            # 0 or 20 bytes; in practice present for type 1
+            # If your format always includes exactly these sizes, read them conditionally
+            # Here we try to read the next 20 bytes as NodeID (if enough room remains before signature)
+            # Safer approach: rely on "remaining before signature" logic below.
+            remaining_before_sig = None  # we'll compute below and split accordingly
+            # We'll compute remaining anyway, so read explicitly:
+            platformNodeID = vds.read_bytes(20)  # 20 bytes
+            platformP2PPort = vds.read_uint16()  # 2 bytes LE
+            platformHTTPPort = vds.read_uint16()  # 2 bytes LE
+
+        # payloadSig
+        if version < 2:
+            # Old payloads use CompactSize-prefixed varbytes signature
+            payloadSig = read_varbytes(vds)
+        else:
+            # In v2+ payloadSig is fixed-length (BLS signature)
+            remaining = len(vds.input) - vds.read_cursor
+            # BLS Basic signatures are usually 96 bytes, but legacy could be 90
+            if remaining not in (90, 96):
+                raise ValueError(f"Unexpected payloadSig size: {remaining} bytes")
+            payloadSig = vds.read_bytes(remaining)
 
         ipAddress = ip_address(bytes(ipAddress))
         if ipAddress.ipv4_mapped:
             ipAddress = str(ipAddress.ipv4_mapped)
         else:
             ipAddress = str(ipAddress)
-        return DashProUpServTx(version, proTxHash, ipAddress, port,
-                               scriptOperatorPayout, inputsHash, payloadSig, mn_type)
+
+        return DashProUpServTx(
+            version,
+            proTxHash,
+            ipAddress,
+            port,
+            scriptOperatorPayout,
+            inputsHash,
+            payloadSig,
+            mn_type,
+            platformNodeID,
+            platformP2PPort,
+            platformHTTPPort,
+        )
 
     def update_with_tx_data(self, tx):
         outpoints = [TxOutPoint(bfh(i.prevout.txid.hex())[::-1],
