@@ -8,15 +8,15 @@ on:
         required: true
         type: string
       target_os:
-          description: 'Target OS for build'
-          required: true
-          type: choice
-          options:
-            - All
-            - Linux
-            - Windows
-            - macOS
-            - Android
+        description: 'Target OS for build'
+        required: true
+        type: choice
+        options:
+          - All
+          - Linux
+          - Windows
+          - macOS
+          - Android
       prerelease:
         description: "True to set 'Pre-Release' option"
         required: true
@@ -61,12 +61,12 @@ jobs:
     name: create release for macOS
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
       - name: Set outputs for pkg_ver
         id: set_vars
         run: |
           source ./contrib/dash/electrum_dash_version_env.sh
-          echo "pkg_ver=$(echo $DASH_ELECTRUM_VERSION)" >> $GITHUB_OUTPUT
+          echo "pkg_ver=${DASH_ELECTRUM_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Prepare build
         env:
           DASH_ELECTRUM_VERSION: ${{ steps.set_vars.outputs.pkg_ver }}
@@ -103,17 +103,17 @@ jobs:
       - name: Install apt packages
         run: |
           sudo apt-get update
-          sudo apt-get install gettext python3-virtualenv
+          sudo apt-get install -y gettext python3-virtualenv
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
       - name: Set outputs for pkg_ver, apk_ver, vercode, is_release
         id: set_vars
         run: |
           source ./contrib/dash/electrum_dash_version_env.sh
-          echo "pkg_ver=$(echo $DASH_ELECTRUM_VERSION)" >> $GITHUB_OUTPUT
-          echo "apk_ver=$(echo $DASH_ELECTRUM_APK_VERSION)" >> $GITHUB_OUTPUT
-          echo "vercode=$(echo $DASH_ELECTRUM_VERSION_CODE)" >> $GITHUB_OUTPUT
-          echo "is_release=$(echo $IS_RELEASE)" >> $GITHUB_OUTPUT
+          echo "pkg_ver=${DASH_ELECTRUM_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "apk_ver=${DASH_ELECTRUM_APK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "vercode=${DASH_ELECTRUM_VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "is_release=${IS_RELEASE}" >> "$GITHUB_OUTPUT"
       - name: Prepare build
         if: ${{ steps.set_vars.outputs.is_release || matrix.is_mainnet[0] == 'false' }}
         env:
@@ -149,12 +149,12 @@ jobs:
     name: create release for Linux
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
       - name: Set outputs for pkg_ver
         id: set_vars
         run: |
           source ./contrib/dash/electrum_dash_version_env.sh
-          echo "pkg_ver=$(echo $DASH_ELECTRUM_VERSION)" >> $GITHUB_OUTPUT
+          echo "pkg_ver=${DASH_ELECTRUM_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Prepare build
         env:
           DASH_ELECTRUM_VERSION: ${{ steps.set_vars.outputs.pkg_ver }}
@@ -197,12 +197,12 @@ jobs:
     name: create release for Windows
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
       - name: Set outputs for pkg_ver
         id: set_vars
         run: |
           source ./contrib/dash/electrum_dash_version_env.sh
-          echo "pkg_ver=$(echo $DASH_ELECTRUM_VERSION)" >> $GITHUB_OUTPUT
+          echo "pkg_ver=${DASH_ELECTRUM_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Prepare build
         env:
           DASH_ELECTRUM_VERSION: ${{ steps.set_vars.outputs.pkg_ver }}
