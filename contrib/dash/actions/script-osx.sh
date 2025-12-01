@@ -10,6 +10,10 @@ virtualenv -p python3.10 env
 source env/bin/activate
 PIP_CMD="pip"
 
+# Force compatibility for relic/bls with newer CMake
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+export CMAKE_ARGS="-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+
 $PIP_CMD install git+https://github.com/pshenmic/bls-signatures.git
 $PIP_CMD install --no-warn-script-location \
     -r contrib/deterministic-build/requirements.txt
