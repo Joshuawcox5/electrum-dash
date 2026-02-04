@@ -70,6 +70,9 @@ jobs:
       - name: Prepare build
         env:
           DASH_ELECTRUM_VERSION: ${{ steps.set_vars.outputs.pkg_ver }}
+          ARCHFLAGS: "-arch x86_64"
+          CFLAGS: "-arch x86_64 -I/usr/local/include"
+          LDFLAGS: "-arch x86_64 -L/usr/local/lib -liconv"
         run: |
           ./contrib/dash/actions/install-osx.sh
       - name: Build dmg
