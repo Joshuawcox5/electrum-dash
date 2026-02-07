@@ -801,7 +801,7 @@ mainnet_block_explorers = {
 }
 
 testnet_block_explorers = {
-    'Dash.org': ('https://testnet-insight.dashevo.org/insight/',
+    'Dash.org': ('https://insight.testnet.networks.dash.org/insight/',
                  {'tx': 'tx/', 'addr': 'address/'}),
     'system default': ('blockchain:/',
                        {'tx': 'tx/', 'addr': 'address/'}),
