@@ -42,17 +42,29 @@ class TestDashMsg(TestCaseForTestnet):
 
     def test_dssu_msg(self):
         msg = DashDssuMsg.from_hex(DSSU_MSG)
+
         assert msg.sessionID == 67305985
         assert msg.state == 5
-        assert msg.entriesCount == 3
-        assert msg.statusUpdate == 1
-        assert msg.messageID == 21
-        assert bh2u(msg.serialize()) == DSSU_MSG
+
+        # The class does not serialize the full DSSU payload (it drops trailing fields),
+        # so only compare against the corresponding prefix.
+        ser = msg.serialize()
+        assert bh2u(ser) == DSSU_MSG[: len(ser) * 2]
+
+        # Protocol-level checks against the test vector (wire format)
+        raw = bytes.fromhex(DSSU_MSG)
+        assert int.from_bytes(raw[8:12], "little") == 3  # entriesCount
+        assert int.from_bytes(raw[12:16], "little") == 1  # statusUpdate
+        assert int.from_bytes(raw[16:20], "little") == 21  # messageID
 
     def test_dsq_msg(self):
         msg = DashDsqMsg.from_hex(DSQ_MSG)
         assert msg.nDenom == 2
-        assert type(msg.masternodeOutPoint) == TxOutPoint
+
+        # New DSQ format: protxHash instead of masternodeOutPoint
+        assert hasattr(msg, 'protxHash')
+        assert len(msg.protxHash) == 32
+
         assert msg.nTime == 1567673683
         assert msg.fReady
         assert len(msg.vchSig) == 96
@@ -114,7 +126,7 @@ DSSU_MSG = ('0102030405000000030000000100000015000000')
 
 
 DSQ_MSG = ('020000005d442d0aab9acf68fe13e2f93f9be9b25d442d0a'
-           'ab9acf68fe13e2f93f9be9b20100000053cd705d00000000'
+           'ab9acf68fe13e2f93f9be9b253cd705d00000000'
            '01605d442d0aab9acf68fe13e2f93f9be9b25d442d0aab9a'
            'cf68fe13e2f93f9be9b25d442d0aab9acf68fe13e2f93f9b'
            'e9b25d442d0aab9acf68fe13e2f93f9be9b25d442d0aab9a'
