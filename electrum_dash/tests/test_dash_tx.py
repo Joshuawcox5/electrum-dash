@@ -178,44 +178,32 @@ PRO_REG_TX_D = {
 
 
 PRO_UP_SERV_TX = (
-    '03000200010931c6b0ad7ce07f3c8aefeeb78e246a4fe6872bbf08ab6e4eb6a7b69acd'
-    '64a6010000006b483045022100a2feb698c43c752738fabea281b7e9e5a3aa648a4c54'
-    '1171e06d7c372db92c65022061c1ec3c92f2e76bb7fb1b548d854f19a41e6421267231'
-    '74150412caf3e98e9601210293360bf2a2e810673412bc6e8e0e358f3fb7bdbe9a667b'
-    '3d0103f761cc69a211feffffff0189fa433e000000001976a914551ab8ca96a9142217'
-    '4d22769c3a4f90b2dcd0de88ac00000000ce01003c6dca244f49f19d3f09889753ffff'
-    '1fec5bb8f9f5bd5bc09dabd999da21198f00000000000000000000ffff5fb735802711'
-    '1976a91421851058431a7d722e8e8dd9509e7f2b8e7042ec88acefcfe3d578914bb48c'
-    '6bd71b3459d384e4237446d521c9e2c6b6fcf019b5aafc99443fe14f644cfa47086e88'
-    '97cf7b546a67723d4a8ec5353a82f962a96ec3cea328343b647aace2897d6eddd0b8c8'
-    'ee0f2e56f6733aed2e9f0006caafa6fc21c18a013c619d6e37af8d2f0985e3b769abc3'
-    '8ffa60e46c365a38d9fa0d44fd62'
-)
+    '0300020001a2459ab64c7e57d839d7139b3eca65e86a41dd973f973198673e17a0ec54'
+    'c574020000006a47304402204a53463aac9e455b921f217d016d4abe511ef68d5f7cef'
+    '913f0abc0df2ddae6f02206f90984f4aa4c570e092390d3ef62e8053292c5344df078c'
+    '0eeffe11b4cb45ea012103250bbf397268d69bcf80c750e2bec76a1b1f73492f7e2ce9'
+    'd830ea5a7c965f56feffffff014c22b707000000001976a914d4a82009b30cfa6dbd9e'
+    '5b6e30e2990ac2318bff88ac00000000cf020001002d677437e23ac3772cb1f6615785'
+    '86b3f2c25a3d68fb48d9e1f152f9a3eeb03600000000000000000000ffff5d154cb94e'
+    '1f008c4e81657bad4739c8943e787bb1324de46a4c13426283560dbb5abd4e8454cac9'
+    '85e8067fdd5c2126853e9577fcb32775cbebda308fa305a34c4b8a3e1c8eae6bc82a6a'
+    'b28742e180b9a996cbf887ea596ef2b5ee0cb6fb3b0ef5dc5e2107179789ba76c3fa1a'
+    '9d09523d7d5fb16cb08ccfa330d5072ce17dd39b0e49d850ba1e33941d280dab3f76b3'
+    'd88b97df3cba0afa4a5d6223107d')
 
 PRO_UP_SERV_TX_D = {
-    'inputsHash': (
-        'efcfe3d578914bb48c6bd71b3459d384'
-        'e4237446d521c9e2c6b6fcf019b5aafc'
-    ),
-    'ipAddress': '95.183.53.128',
-    'mn_type': None,
-    'payloadSig': (
-        '99443fe14f644cfa47086e8897cf7b546a67723d4a8ec5353a'
-        '82f962a96ec3cea328343b647aace2897d6eddd0b8c8ee0f2e'
-        '56f6733aed2e9f0006caafa6fc21c18a013c619d6e37af8d2f'
-        '0985e3b769abc38ffa60e46c365a38d9fa0d44fd62'
-    ),
-    'port': 10001,
-    'proTxHash': (
-        '3c6dca244f49f19d3f09889753ffff1f'
-        'ec5bb8f9f5bd5bc09dabd999da21198f'
-    ),
-    'scriptOperatorPayout': (
-        '76a91421851058431a7d722e8'
-        'e8dd9509e7f2b8e7042ec88ac'
-    ),
-    'version': 1,
-}
+        "inputsHash": "8c4e81657bad4739c8943e787bb1324de46a4c13426283560dbb5abd4e8454ca",
+        "ipAddress": "93.21.76.185",
+        "mn_type": 1,
+        "payloadSig": "a34c4b8a3e1c8eae6bc82a6ab28742e180b9a996cbf887ea596ef2b5ee0cb6fb3b0ef5dc5e2107179789ba76c3fa1a9d09523d7d5fb16cb08ccfa330d5072ce17dd39b0e49d850ba1e33941d280dab3f76b3d88b97df3cba0afa4a5d6223107d",
+        "platformHTTPPort": 1443,
+        "platformNodeID": "c985e8067fdd5c2126853e9577fcb32775cbebda",
+        "platformP2PPort": 36656,
+        "port": 19999,
+        "proTxHash": "2d677437e23ac3772cb1f661578586b3f2c25a3d68fb48d9e1f152f9a3eeb036",
+        "scriptOperatorPayout": "",
+        "version": 2
+    }
 
 
 PRO_UP_REG_TX = (
@@ -527,8 +515,8 @@ class TestDashSpecTxSerialization(SequentialTestCase):
         ser = tx.serialize()
         assert ser == PRO_UP_SERV_TX
 
-        assert extra.to_hex_str() == PRO_UP_SERV_TX[386:]
-        extra2 = ProTxBase.from_hex_str(SPEC_PRO_UP_SERV_TX, PRO_UP_SERV_TX[386:])
+        assert extra.to_hex_str() == PRO_UP_SERV_TX[384:]
+        extra2 = ProTxBase.from_hex_str(SPEC_PRO_UP_SERV_TX, PRO_UP_SERV_TX[384:])
         assert extra2.version == extra.version
         assert extra2.proTxHash == extra.proTxHash
         assert extra2.ipAddress == extra.ipAddress
