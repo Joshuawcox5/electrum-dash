@@ -303,6 +303,12 @@ class DashProRegTx(ProTxBase):
             f'{len(self.KeyIdVoting)} not 20'
         assert len(self.inputsHash) == 32, \
             f'{len(self.inputsHash)} not 32'
+
+        if self.version >= 3:
+            # ProRegTx v3+ uses netInfo instead of ipAddress/port.
+            # Proper netInfo serialization is not implemented here.
+            raise ValueError("ProRegTx version >= 3 (netInfo) serialization is not supported yet")
+
         if self.ipAddress:
             ipAddress = ip_address(self.ipAddress)
             ipAddress = serialize_ip(ipAddress)
@@ -311,36 +317,23 @@ class DashProRegTx(ProTxBase):
             ipAddress = b'\x00' * 16
             port = 0
 
-        # Serialize payloadSig depending on payload version and mode
-        if self.version < 2:
-            # legacy: payloadSig is CompactSize + bytes
-            payload_sig_bytes = to_varbytes(self.payloadSig) if full else b''
-        else:
-            # v2+: payloadSig has NO CompactSize prefix; it is fixed-length bytes
-            if full:
-                # ProRegTx v2 "legacy/basic" BLS signature may be 90 or 96 bytes on wire
-                sig_len = len(self.payloadSig)
-                if sig_len not in (90, 96):
-                    raise ValueError(f'payloadSig length must be 90 or 96 (got {sig_len})')
-                payload_sig_bytes = self.payloadSig
-            else:
-                # When signing/producing hash to sign, payloadSig must be excluded
-                payload_sig_bytes = b''
+        # ProRegTx payloadSig is CompactSize-prefixed varbytes for all versions.
+        payload_sig_bytes = to_varbytes(self.payloadSig) if full else b''
 
         return (
             struct.pack('<H', self.version) +           # version
             struct.pack('<H', self.type) +              # type
             struct.pack('<H', self.mode) +              # mode
             self.collateralOutpoint.serialize() +       # collateralOutpoint
-            ipAddress +                                 # ipAddress
-            struct.pack('>H', port) +                   # port
+            ipAddress +                                 # ipAddress (v<3)
+            struct.pack('>H', port) +                   # port (v<3, network byte order)
             self.KeyIdOwner +                           # KeyIdOwner
             self.PubKeyOperator +                       # PubKeyOperator
             self.KeyIdVoting +                          # KeyIdVoting
             struct.pack('<H', self.operatorReward) +    # operatorReward
             to_varbytes(self.scriptPayout) +            # scriptPayout
             self.inputsHash +                           # inputsHash
-            payload_sig_bytes                           # payloadSig
+            payload_sig_bytes                           # payloadSig (varbytes)
         )
 
     @classmethod
@@ -349,8 +342,22 @@ class DashProRegTx(ProTxBase):
         mn_type = vds.read_uint16()                     # type
         mode = vds.read_uint16()                        # mode
         collateralOutpoint = read_outpoint(vds)         # collateralOutpoint
-        ipAddress = vds.read_bytes(16)                  # ipAddress
-        port = read_uint16_nbo(vds)                     # port
+
+        if version < 3:
+            ip_raw = vds.read_bytes(16)                 # ipAddress (v<3)
+            port = read_uint16_nbo(vds)                 # port (v<3)
+            ip_obj = ip_address(bytes(ip_raw))
+            if ip_obj.ipv4_mapped:
+                ipAddress = str(ip_obj.ipv4_mapped)
+            else:
+                ipAddress = str(ip_obj)
+        else:
+            # ProRegTx v3+ replaces ipAddress/port and platform fields with netInfo (varbytes).
+            # We read it to keep the cursor aligned, but we don't parse it yet.
+            _netInfo = read_varbytes(vds)
+            ipAddress = ''  # Unknown/unparsed netInfo
+            port = 0
+
         KeyIdOwner = vds.read_bytes(20)                 # KeyIdOwner
         PubKeyOperator = vds.read_bytes(48)             # PubKeyOperator
         KeyIdVoting = vds.read_bytes(20)                # KeyIdVoting
@@ -358,26 +365,15 @@ class DashProRegTx(ProTxBase):
         scriptPayout = read_varbytes(vds)               # scriptPayout
         inputsHash = vds.read_bytes(32)                 # inputsHash
 
-        if version < 2:
-            # Old payloads use CompactSize-prefixed varbytes signature
-            payloadSig = read_varbytes(vds)
-        else:
-            # In v2+ payloadSig is fixed-length (BLS signature)
-            remaining = len(vds.input) - vds.read_cursor
-            # BLS Basic signatures are usually 96 bytes, but legacy could be 90
-            if remaining not in (90, 96):
-                raise ValueError(f"Unexpected payloadSig size: {remaining} bytes")
-            payloadSig = vds.read_bytes(remaining)
+        # ProRegTx payloadSig is CompactSize-prefixed varbytes for all versions.
+        payloadSig = read_varbytes(vds)
 
-        ipAddress = ip_address(bytes(ipAddress))
-        if ipAddress.ipv4_mapped:
-            ipAddress = str(ipAddress.ipv4_mapped)
-        else:
-            ipAddress = str(ipAddress)
-        return DashProRegTx(version, mn_type, mode, collateralOutpoint,
-                            ipAddress, port, KeyIdOwner, PubKeyOperator,
-                            KeyIdVoting, operatorReward, scriptPayout,
-                            inputsHash, payloadSig)
+        return DashProRegTx(
+            version, mn_type, mode, collateralOutpoint,
+            ipAddress, port, KeyIdOwner, PubKeyOperator,
+            KeyIdVoting, operatorReward, scriptPayout,
+            inputsHash, payloadSig
+        )
 
     def update_with_tx_data(self, tx):
         if self.collateralOutpoint.hash_is_null:
@@ -531,33 +527,32 @@ class DashProUpServTx(ProTxBase):
     @classmethod
     def read_vds(cls, vds):
         mn_type = None
-        version = vds.read_uint16()                     # version
+
+        # Defaults for optional platform fields
+        platformNodeID = b''
+        platformP2PPort = None
+        platformHTTPPort = None
+
+        version = vds.read_uint16()  # version
         if version >= 2:
-            mn_type = vds.read_uint16()                 # TX Type
-        proTxHash = vds.read_bytes(32)                  # proTxHash
-        ipAddress = vds.read_bytes(16)                  # ipAddress
-        port = read_uint16_nbo(vds)                     # port
-        scriptOperatorPayout = read_varbytes(vds)       # scriptOperatorPayout
-        inputsHash = vds.read_bytes(32)                 # inputsHash
+            mn_type = vds.read_uint16()  # TX Type
+
+        proTxHash = vds.read_bytes(32)  # proTxHash
+        ipAddress = vds.read_bytes(16)  # ipAddress
+        port = read_uint16_nbo(vds)  # port
+        scriptOperatorPayout = read_varbytes(vds)  # scriptOperatorPayout
+        inputsHash = vds.read_bytes(32)  # inputsHash
+
         if version >= 2 and mn_type == 1:
-            # 0 or 20 bytes; in practice present for type 1
-            # If your format always includes exactly these sizes, read them conditionally
-            # Here we try to read the next 20 bytes as NodeID (if enough room remains before signature)
-            # Safer approach: rely on "remaining before signature" logic below.
-            remaining_before_sig = None  # we'll compute below and split accordingly
-            # We'll compute remaining anyway, so read explicitly:
             platformNodeID = vds.read_bytes(20)  # 20 bytes
             platformP2PPort = vds.read_uint16()  # 2 bytes LE
             platformHTTPPort = vds.read_uint16()  # 2 bytes LE
 
         # payloadSig
         if version < 2:
-            # Old payloads use CompactSize-prefixed varbytes signature
             payloadSig = read_varbytes(vds)
         else:
-            # In v2+ payloadSig is fixed-length (BLS signature)
             remaining = len(vds.input) - vds.read_cursor
-            # BLS Basic signatures are usually 96 bytes, but legacy could be 90
             if remaining not in (90, 96):
                 raise ValueError(f"Unexpected payloadSig size: {remaining} bytes")
             payloadSig = vds.read_bytes(remaining)
