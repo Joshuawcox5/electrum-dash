@@ -28,3 +28,8 @@ electrum_dash/gui/kivy/theming/atlas/light-0.png
 electrum_dash/gui/kivy/theming/atlas/light-1.png
 electrum_dash/gui/kivy/theming/atlas/light.atlas
 *.egg-info/
+
+.idea/
+blspy_wrapper.log
+contrib/secp256k1/
+electrum_dash/libsecp256k1.so.0
