@@ -1566,7 +1566,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         )
 
         def on_dust_ui_changed(*args):
-            self.config.set_key('exclude_dust_from_coin_selection', self.exclude_dust_cb.isChecked(), save=True)
+            self.config.set_key(
+                'exclude_dust_from_coin_selection',
+                self.exclude_dust_cb.isChecked(),
+                save=True
+            )
+            # Recalculate available amount immediately
+            try:
+                self.update_available_amount()
+            except Exception:
+                pass
 
         self.exclude_dust_cb.stateChanged.connect(on_dust_ui_changed)
 
