@@ -38,7 +38,7 @@ import queue
 import asyncio
 from typing import Optional, TYPE_CHECKING, Sequence, List, Union
 
-from PyQt5.QtGui import QPixmap, QKeySequence, QIcon, QCursor, QFont
+from PyQt5.QtGui import QPixmap, QKeySequence, QIcon, QCursor, QFont, QIntValidator
 from PyQt5.QtCore import Qt, QRect, QStringListModel, QSize, pyqtSignal, QPoint
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (QMessageBox, QComboBox, QSystemTrayIcon, QTabWidget,
@@ -1523,8 +1523,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.amount_e = BTCAmountEdit(self.get_decimal_point)
         self.payto_e = PayToEdit(self)
         self.payto_e.addPasteButton(self.app)
-        msg = _('Recipient of the funds.') + '\n\n'\
-              + _('You may enter a Dash address, a label from your list of contacts (a list of completions will be proposed), or an alias (email-like address that forwards to a Dash address)')
+        msg = _('Recipient of the funds.') + '\n\n' \
+              + _(
+            'You may enter a Dash address, a label from your list of contacts (a list of completions will be proposed), or an alias (email-like address that forwards to a Dash address)')
         payto_label = HelpLabel(_('Pay to'), msg)
         grid.addWidget(payto_label, 1, 0)
         grid.addWidget(self.payto_e, 1, 1, 1, -1)
@@ -1534,8 +1535,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.payto_e.set_completer(completer)
         completer.setModel(self.completions)
 
-        msg = _('Description of the transaction (not mandatory).') + '\n\n'\
-              + _('The description is not sent to the recipient of the funds. It is stored in your wallet file, and displayed in the \'History\' tab.')
+        msg = _('Description of the transaction (not mandatory).') + '\n\n' \
+              + _(
+            'The description is not sent to the recipient of the funds. It is stored in your wallet file, and displayed in the \'History\' tab.')
         description_label = HelpLabel(_('Description'), msg)
         grid.addWidget(description_label, 2, 0)
         self.message_e = SizedFreezableLineEdit(width=700)
@@ -1554,7 +1556,31 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.ps_cb = QCheckBox(_('PrivateSend'))
         self.ps_cb.stateChanged.connect(self.on_ps_cb)
         self.ps_cb.setVisible(True)
-        grid.addWidget(self.ps_cb, 3, 1)
+
+        # Dust exclusion options (threshold is in settings)
+        self.exclude_dust_cb = QCheckBox(_('Do not include dust'))
+        self.exclude_dust_cb.setChecked(bool(self.config.get('exclude_dust_from_coin_selection', True)))
+        self.exclude_dust_cb.setToolTip(
+            _('When enabled, small UTXOs below the dust threshold will not be automatically selected for spending. '
+              'Manual coin selection will still allow spending them.')
+        )
+
+        def on_dust_ui_changed(*args):
+            self.config.set_key('exclude_dust_from_coin_selection', self.exclude_dust_cb.isChecked(), save=True)
+
+        self.exclude_dust_cb.stateChanged.connect(on_dust_ui_changed)
+
+        # Place both checkboxes into a single widget (PrivateSend on top, dust option below)
+        ps_dust_vbox = QVBoxLayout()
+        ps_dust_vbox.setContentsMargins(0, 0, 0, 0)
+        ps_dust_vbox.setSpacing(2)
+        ps_dust_vbox.addWidget(self.ps_cb)
+        ps_dust_vbox.addWidget(self.exclude_dust_cb)
+        ps_dust_vbox.addStretch(1)
+
+        ps_dust_w = QWidget()
+        ps_dust_w.setLayout(ps_dust_vbox)
+        grid.addWidget(ps_dust_w, 3, 1, alignment=Qt.AlignVCenter)
 
         self.av_amnt = BTCAmountEdit(self.get_decimal_point)
         self.av_amnt.setEnabled(False)
@@ -1563,7 +1589,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
         msg = _('Amount to be sent.') + '\n\n' \
               + _('The amount will be displayed in red if you do not have enough funds in your wallet.') + ' ' \
-              + _('Note that if you have frozen some of your addresses, the available funds will be lower than your total balance.') + '\n\n' \
+              + _(
+            'Note that if you have frozen some of your addresses, the available funds will be lower than your total balance.') + '\n\n' \
               + _('Keyboard shortcut: type "!" to send all your coins.')
         amount_label = HelpLabel(_('Amount'), msg)
         grid.addWidget(amount_label, 4, 0)
@@ -1595,7 +1622,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
         self.extra_payload = ExtraPayloadWidget(self)
         self.extra_payload.hide()
-        msg = _('Extra payload.') + '\n\n'\
+        msg = _('Extra payload.') + '\n\n' \
               + _('Dash DIP2 Special Transaction extra payload.')
         self.extra_payload_label = HelpLabel(_('Extra payload'), msg)
         self.extra_payload_label.hide()
@@ -1605,7 +1632,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         def reset_max(text):
             self.max_button.setChecked(False)
             enable = not bool(text) and not self.amount_e.isReadOnly()
-            #self.max_button.setEnabled(enable)
+            # self.max_button.setEnabled(enable)
+
         self.amount_e.textEdited.connect(reset_max)
         self.fiat_send_e.textEdited.connect(reset_max)
 
