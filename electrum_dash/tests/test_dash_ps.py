@@ -9,6 +9,9 @@ import time
 from collections import defaultdict, Counter
 from pprint import pprint
 
+from unittest import mock
+from electrum_dash import wallet as wallet_mod
+
 from electrum_dash import dash_ps, ecc
 from electrum_dash.address_synchronizer import (TX_HEIGHT_LOCAL,
                                                 TX_HEIGHT_UNCONF_PARENT,
@@ -4595,3 +4598,59 @@ class PSWalletTestCase(TestCaseForTestnet):
         w = self.wallet
         psman = w.psman
         psman.get_all_known_addresses_beyond_gap_limit()
+
+    class _FakeUTXO:
+        def __init__(self, value):
+            self._value = value
+
+        def value_sats(self):
+            return self._value
+
+    @mock.patch.object(wallet_mod.Abstract_Wallet, 'save_db')
+    def test_dust_filter_filters_when_enabled(self, mock_save_db):
+        self.config.set_key('exclude_dust_from_coin_selection', True, save=False)
+        self.config.set_key('dust_threshold_duffs', 10000, save=False)
+
+        utxos = [self._FakeUTXO(5000), self._FakeUTXO(10000), self._FakeUTXO(25000)]
+        with mock.patch.object(self.wallet, 'get_utxos', return_value=utxos), \
+             mock.patch.object(self.wallet, 'is_frozen_coin', return_value=False):
+            coins = self.wallet.get_spendable_coins(domain=None)
+
+        assert len(coins) == 2
+        assert all(c.value_sats() >= 10000 for c in coins)
+
+    @mock.patch.object(wallet_mod.Abstract_Wallet, 'save_db')
+    def test_dust_filter_skips_when_disabled(self, mock_save_db):
+        self.config.set_key('exclude_dust_from_coin_selection', False, save=False)
+        self.config.set_key('dust_threshold_duffs', 10000, save=False)
+
+        utxos = [self._FakeUTXO(1), self._FakeUTXO(5000), self._FakeUTXO(9999)]
+        with mock.patch.object(self.wallet, 'get_utxos', return_value=utxos), \
+             mock.patch.object(self.wallet, 'is_frozen_coin', return_value=False):
+            coins = self.wallet.get_spendable_coins(domain=None)
+
+        assert len(coins) == 3
+
+    @mock.patch.object(wallet_mod.Abstract_Wallet, 'save_db')
+    def test_dust_filter_fallback_when_all_dust(self, mock_save_db):
+        self.config.set_key('exclude_dust_from_coin_selection', True, save=False)
+        self.config.set_key('dust_threshold_duffs', 10000, save=False)
+
+        utxos = [self._FakeUTXO(1), self._FakeUTXO(500)]
+        with mock.patch.object(self.wallet, 'get_utxos', return_value=utxos), \
+             mock.patch.object(self.wallet, 'is_frozen_coin', return_value=False):
+            coins = self.wallet.get_spendable_coins(domain=None)
+
+        assert len(coins) == 2
+
+    @mock.patch.object(wallet_mod.Abstract_Wallet, 'save_db')
+    def test_dust_filter_disabled_by_domain_coins(self, mock_save_db):
+        self.config.set_key('exclude_dust_from_coin_selection', True, save=False)
+        self.config.set_key('dust_threshold_duffs', 10000, save=False)
+
+        utxos = [self._FakeUTXO(1), self._FakeUTXO(5000), self._FakeUTXO(20000)]
+        with mock.patch.object(self.wallet, 'get_utxos', return_value=utxos), \
+             mock.patch.object(self.wallet, 'is_frozen_coin', return_value=False):
+            coins = self.wallet.get_spendable_coins(domain=None, domain_coins=['manual'])
+
+        assert len(coins) == 3
