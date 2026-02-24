@@ -161,10 +161,13 @@ class TxOutPoint(namedtuple('TxOutPoint', 'hash index')):
 
 class CTxIn(namedtuple('CTxIn', 'hash index scriptSig sequence')):
     '''Class representing tx input'''
+
     def __str__(self):
-        return ('CTxIn: %s:%s, scriptSig=%s, sequeence=%s' %
-                (bh2u(self.hash[::-1]), self.index,
-                 self.scriptSig, self.sequence))
+        return (
+            f"CTxIn: {bh2u(self.hash[::-1])}:{self.index}, "
+            f"scriptSig={self.scriptSig}, "
+            f"sequence={self.sequence}"
+        )
 
     @classmethod
     def read_vds(cls, vds):
@@ -188,10 +191,13 @@ class CTxIn(namedtuple('CTxIn', 'hash index scriptSig sequence')):
 
 class CTxOut(namedtuple('CTxOut', 'value scriptPubKey')):
     '''Class representing tx output'''
+
     def __str__(self):
-        return ('CTxOut: %s:%s, scriptPubKey=%s, sequeence=%s' %
-                (bh2u(self.hash[::-1]), self.index,
-                 self.scriptPubKey, self.sequence))
+        return (
+            f"CTxOut: {bh2u(self.hash[::-1])}:{self.index}, "
+            f"scriptPubKey={self.scriptPubKey}, "
+            f"sequence={self.sequence}"
+        )
 
     @classmethod
     def read_vds(cls, vds):
@@ -264,115 +270,118 @@ class ProTxBase:
 
 
 class DashProRegTx(ProTxBase):
-    '''Class representing DIP3 ProRegTx'''
+    """Class representing DIP3 ProRegTx"""
 
-    __slots__ = ('version type mode collateralOutpoint '
-                 'ipAddress port KeyIdOwner PubKeyOperator '
-                 'KeyIdVoting operatorReward scriptPayout '
-                 'inputsHash payloadSig').split()
+    __slots__ = (
+        "version type mode collateralOutpoint "
+        "ipAddress port KeyIdOwner PubKeyOperator "
+        "KeyIdVoting operatorReward scriptPayout "
+        "inputsHash payloadSig"
+    ).split()
 
     def __init__(self, *args, **kwargs):
         super(DashProRegTx, self).__init__(*args, **kwargs)
-        self.payload_sig_msg_part = ''
+        self.payload_sig_msg_part = ""
 
     def __str__(self):
-        return ('ProRegTx Version: %s\n'
-                'type: %s, mode: %s\n'
-                'collateral: %s\n'
-                'ipAddress: %s, port: %s\n'
-                'KeyIdOwner: %s\n'
-                'PubKeyOperator: %s\n'
-                'KeyIdVoting: %s\n'
-                'operatorReward: %s\n'
-                'scriptPayout: %s\n'
-                % (self.version, self.type, self.mode,
-                   self.collateralOutpoint,
-                   self.ipAddress, self.port,
-                   bh2u(self.KeyIdOwner),
-                   bh2u(self.PubKeyOperator),
-                   bh2u(self.KeyIdVoting),
-                   self.operatorReward,
-                   bh2u(self.scriptPayout)))
+        return (
+            "ProRegTx Version: %s\n"
+            "type: %s, mode: %s\n"
+            "collateral: %s\n"
+            "ipAddress: %s, port: %s\n"
+            "KeyIdOwner: %s\n"
+            "PubKeyOperator: %s\n"
+            "KeyIdVoting: %s\n"
+            "operatorReward: %s\n"
+            "scriptPayout: %s\n"
+            % (
+                self.version,
+                self.type,
+                self.mode,
+                self.collateralOutpoint,
+                self.ipAddress,
+                self.port,
+                bh2u(self.KeyIdOwner),
+                bh2u(self.PubKeyOperator),
+                bh2u(self.KeyIdVoting),
+                self.operatorReward,
+                bh2u(self.scriptPayout),
+            )
+        )
 
     def serialize(self, full=True):
-        assert len(self.KeyIdOwner) == 20, \
-            f'{len(self.KeyIdOwner)} not 20'
-        assert len(self.PubKeyOperator) == 48, \
-            f'{len(self.PubKeyOperator)} not 48'
-        assert len(self.KeyIdVoting) == 20, \
-            f'{len(self.KeyIdVoting)} not 20'
-        assert len(self.inputsHash) == 32, \
-            f'{len(self.inputsHash)} not 32'
-
-        if self.version >= 3:
-            # ProRegTx v3+ uses netInfo instead of ipAddress/port.
-            # Proper netInfo serialization is not implemented here.
-            raise ValueError("ProRegTx version >= 3 (netInfo) serialization is not supported yet")
+        assert len(self.KeyIdOwner) == 20, f"{len(self.KeyIdOwner)} not 20"
+        assert len(self.PubKeyOperator) == 48, f"{len(self.PubKeyOperator)} not 48"
+        assert len(self.KeyIdVoting) == 20, f"{len(self.KeyIdVoting)} not 20"
+        assert len(self.inputsHash) == 32, f"{len(self.inputsHash)} not 32"
 
         if self.ipAddress:
-            ipAddress = ip_address(self.ipAddress)
-            ipAddress = serialize_ip(ipAddress)
+            ip_obj = ip_address(self.ipAddress)
+            ip_bytes = serialize_ip(ip_obj)
             port = self.port
         else:
-            ipAddress = b'\x00' * 16
+            ip_bytes = b"\x00" * 16
             port = 0
 
-        # ProRegTx payloadSig is CompactSize-prefixed varbytes for all versions.
-        payload_sig_bytes = to_varbytes(self.payloadSig) if full else b''
+        # payloadSig must be encoded as varbytes on wire.
+        # If signature is empty, it is encoded as CompactSize(0) which is a single 0x00 byte.
+        # When full=False (hashing for signing), payloadSig must be excluded entirely.
+        payload_sig_bytes = to_varbytes(self.payloadSig) if full else b""
 
         return (
-            struct.pack('<H', self.version) +           # version
-            struct.pack('<H', self.type) +              # type
-            struct.pack('<H', self.mode) +              # mode
-            self.collateralOutpoint.serialize() +       # collateralOutpoint
-            ipAddress +                                 # ipAddress (v<3)
-            struct.pack('>H', port) +                   # port (v<3, network byte order)
-            self.KeyIdOwner +                           # KeyIdOwner
-            self.PubKeyOperator +                       # PubKeyOperator
-            self.KeyIdVoting +                          # KeyIdVoting
-            struct.pack('<H', self.operatorReward) +    # operatorReward
-            to_varbytes(self.scriptPayout) +            # scriptPayout
-            self.inputsHash +                           # inputsHash
-            payload_sig_bytes                           # payloadSig (varbytes)
+            struct.pack("<H", self.version)  # version
+            + struct.pack("<H", self.type)  # type
+            + struct.pack("<H", self.mode)  # mode
+            + self.collateralOutpoint.serialize()  # collateralOutpoint
+            + ip_bytes  # ipAddress
+            + struct.pack(">H", port)  # port (network byte order)
+            + self.KeyIdOwner  # KeyIdOwner
+            + self.PubKeyOperator  # PubKeyOperator
+            + self.KeyIdVoting  # KeyIdVoting
+            + struct.pack("<H", self.operatorReward)  # operatorReward
+            + to_varbytes(self.scriptPayout)  # scriptPayout
+            + self.inputsHash  # inputsHash
+            + payload_sig_bytes  # payloadSig (varbytes)
         )
 
     @classmethod
     def read_vds(cls, vds):
-        version = vds.read_uint16()                     # version
-        mn_type = vds.read_uint16()                     # type
-        mode = vds.read_uint16()                        # mode
-        collateralOutpoint = read_outpoint(vds)         # collateralOutpoint
+        version = vds.read_uint16()              # version
+        mn_type = vds.read_uint16()              # type
+        mode = vds.read_uint16()                 # mode
+        collateralOutpoint = read_outpoint(vds)  # collateralOutpoint
+        ip_bytes = vds.read_bytes(16)            # ipAddress
+        port = read_uint16_nbo(vds)              # port
+        KeyIdOwner = vds.read_bytes(20)          # KeyIdOwner
+        PubKeyOperator = vds.read_bytes(48)      # PubKeyOperator
+        KeyIdVoting = vds.read_bytes(20)         # KeyIdVoting
+        operatorReward = vds.read_uint16()       # operatorReward
+        scriptPayout = read_varbytes(vds)        # scriptPayout
+        inputsHash = vds.read_bytes(32)          # inputsHash
 
-        if version < 3:
-            ip_raw = vds.read_bytes(16)                 # ipAddress (v<3)
-            port = read_uint16_nbo(vds)                 # port (v<3)
-            ip_obj = ip_address(bytes(ip_raw))
-            if ip_obj.ipv4_mapped:
-                ipAddress = str(ip_obj.ipv4_mapped)
-            else:
-                ipAddress = str(ip_obj)
-        else:
-            # ProRegTx v3+ replaces ipAddress/port and platform fields with netInfo (varbytes).
-            # We read it to keep the cursor aligned, but we don't parse it yet.
-            _netInfo = read_varbytes(vds)
-            ipAddress = ''  # Unknown/unparsed netInfo
-            port = 0
-
-        KeyIdOwner = vds.read_bytes(20)                 # KeyIdOwner
-        PubKeyOperator = vds.read_bytes(48)             # PubKeyOperator
-        KeyIdVoting = vds.read_bytes(20)                # KeyIdVoting
-        operatorReward = vds.read_uint16()              # operatorReward
-        scriptPayout = read_varbytes(vds)               # scriptPayout
-        inputsHash = vds.read_bytes(32)                 # inputsHash
-
-        # ProRegTx payloadSig is CompactSize-prefixed varbytes for all versions.
+        # payloadSig is varbytes in practice and can be empty.
         payloadSig = read_varbytes(vds)
 
+        ip_obj = ip_address(bytes(ip_bytes))
+        if ip_obj.ipv4_mapped:
+            ip_str = str(ip_obj.ipv4_mapped)
+        else:
+            ip_str = str(ip_obj)
+
         return DashProRegTx(
-            version, mn_type, mode, collateralOutpoint,
-            ipAddress, port, KeyIdOwner, PubKeyOperator,
-            KeyIdVoting, operatorReward, scriptPayout,
-            inputsHash, payloadSig
+            version,
+            mn_type,
+            mode,
+            collateralOutpoint,
+            ip_str,
+            port,
+            KeyIdOwner,
+            PubKeyOperator,
+            KeyIdVoting,
+            operatorReward,
+            scriptPayout,
+            inputsHash,
+            payloadSig,
         )
 
     def update_with_tx_data(self, tx):
@@ -383,190 +392,219 @@ class DashProRegTx(ProTxBase):
                     found_idx = i
                     break
             if found_idx >= 0:
-                self.collateralOutpoint = TxOutPoint(b'\x00'*32, found_idx)
+                self.collateralOutpoint = TxOutPoint(b"\x00" * 32, found_idx)
 
-        outpoints = [TxOutPoint(bfh(i.prevout.txid.hex())[::-1],
-                                i.prevout.out_idx)
-                     for i in tx.inputs()]
+        outpoints = [
+            TxOutPoint(bfh(i.prevout.txid.hex())[::-1], i.prevout.out_idx)
+            for i in tx.inputs()
+        ]
         outpoints_ser = [o.serialize() for o in outpoints]
-        self.inputsHash = sha256d(b''.join(outpoints_ser))
+        self.inputsHash = sha256d(b"".join(outpoints_ser))
 
     def check_after_tx_prepared(self, tx):
-        outpoints = [TxOutPoint(bfh(i.prevout.txid.hex())[::-1],
-                                i.prevout.out_idx)
-                     for i in tx.inputs()]
+        outpoints = [
+            TxOutPoint(bfh(i.prevout.txid.hex())[::-1], i.prevout.out_idx)
+            for i in tx.inputs()
+        ]
 
         outpoints_str = [str(o) for o in outpoints]
         if str(self.collateralOutpoint) in outpoints_str:
-            raise DashTxError('Collateral outpoint used as ProRegTx input.\n'
-                              'Please select coins to spend at Coins tab '
-                              'of freeze collateral at Addresses tab.')
+            raise DashTxError(
+                "Collateral outpoint used as ProRegTx input.\n"
+                "Please select coins to spend at Coins tab "
+                "of freeze collateral at Addresses tab."
+            )
 
     def update_before_sign(self, tx, wallet, password):
-        if self.payloadSig == b'':
+        if self.payloadSig == b"":
             return
-        coins = wallet.get_utxos(domain=None, excluded_addresses=False,
-                                 mature_only=True, confirmed_funding_only=True)
+
+        coins = wallet.get_utxos(
+            domain=None,
+            excluded_addresses=False,
+            mature_only=True,
+            confirmed_funding_only=True,
+        )
 
         c_hash = bh2u(self.collateralOutpoint.hash[::-1])
         c_index = self.collateralOutpoint.index
-        coins = list(filter(lambda x: (x.prevout.txid.hex() == c_hash
-                                       and x.prevout.out_idx == c_index),
-                            coins))
+        coins = list(
+            filter(
+                lambda x: (x.prevout.txid.hex() == c_hash and x.prevout.out_idx == c_index),
+                coins,
+            )
+        )
+
         if len(coins) == 1:
             coll_address = coins[0].address
             payload_hash = bh2u(sha256d(self.serialize(full=False))[::-1])
             payload_sig_msg = self.payload_sig_msg_part + payload_hash
-            self.payloadSig = wallet.sign_message(coll_address,
-                                                  payload_sig_msg,
-                                                  password)
+            self.payloadSig = wallet.sign_message(coll_address, payload_sig_msg, password)
 
 
 class DashProUpServTx(ProTxBase):
-    '''Class representing DIP3 ProUpServTx'''
+    """Class representing DIP3 ProUpServTx"""
 
-    __slots__ = ('version proTxHash ipAddress port '
-                 'scriptOperatorPayout inputsHash '
-                 'payloadSig mn_type '
-                 'platformNodeID platformP2PPort platformHTTPPort'
-                 ).split()
+    __slots__ = (
+        "version proTxHash ipAddress port "
+        "scriptOperatorPayout inputsHash "
+        "payloadSig mn_type "
+        "platformNodeID platformP2PPort platformHTTPPort"
+    ).split()
 
     def __str__(self):
-        res = (f'ProUpServTx Version: {self.version}\n')
-        if getattr(self, 'mn_type', None) is not None:
-            res += (f'Masternode type: {self.mn_type}\n')
+        res = f"ProUpServTx Version: {self.version}\n"
+
+        if getattr(self, "mn_type", None) is not None:
+            res += f"Masternode type: {self.mn_type}\n"
+
         res += (
-            f'proTxHash: {bh2u(self.proTxHash[::-1])}\n'
-            f'ipAddress: {self.ipAddress}, port: {self.port}\n'
+            f"proTxHash: {bh2u(self.proTxHash[::-1])}\n"
+            f"ipAddress: {self.ipAddress}, port: {self.port}\n"
         )
+
         if self.scriptOperatorPayout:
-            res += f'scriptOperatorPayout: {bh2u(self.scriptOperatorPayout)}\n'
-        if getattr(self, 'mn_type', 0) == 1:
-            if getattr(self, 'platformNodeID', b''):
-                res += f'platformNodeID: {bh2u(self.platformNodeID)}\n'
-            if getattr(self, 'platformP2PPort', None) is not None:
-                res += f'platformP2PPort: {self.platformP2PPort}\n'
-            if getattr(self, 'platformHTTPPort', None) is not None:
-                res += f'platformHTTPPort: {self.platformHTTPPort}\n'
+            res += f"scriptOperatorPayout: {bh2u(self.scriptOperatorPayout)}\n"
+
+        if self.version >= 2 and getattr(self, "mn_type", 0) == 1:
+            node_id = getattr(self, "platformNodeID", b"") or b""
+            if node_id:
+                res += f"platformNodeID: {bh2u(node_id)}\n"
+                res += f"platformP2PPort: {getattr(self, 'platformP2PPort', 0)}\n"
+                res += f"platformHTTPPort: {getattr(self, 'platformHTTPPort', 0)}\n"
+
         return res
 
     def serialize(self, full=True):
         """
-        Serialize ProUpServTx extra payload (DIP3 / DIP23).
+        Serialize ProUpServTx extra payload.
 
-        Supports both legacy (v1) and current (v2) formats.
+        v1:
+          version (u16 LE)
+          proTxHash (32)
+          ipAddress (16)
+          port (u16 BE)
+          scriptOperatorPayout (varbytes)
+          inputsHash (32)
+          payloadSig (varbytes)
 
-        Layout:
-          version            (uint16 LE)
-          [mn_type]          (uint16 LE)               # only for version >= 2
-          proTxHash          (32 bytes, LE)
-          ipAddress          (16 bytes, IPv6 mapped, network byte order)
-          port               (uint16 BE, "network byte order")
-          scriptOperatorPayout (varbytes: CompactSize + script)
-          inputsHash         (32 bytes, LE)
-          [platformNodeID]   (20 bytes, optional for mn_type == 1)
-          [platformP2PPort]  (uint16 BE, optional)
-          [platformHTTPPort] (uint16 BE, optional)
-          payloadSig:
-              - v1: CompactSize + bytes (legacy BLS)
-              - v2: raw bytes (90–96), no prefix (basic BLS)
+        v2+:
+          version (u16 LE)
+          mn_type (u16 LE)
+          proTxHash (32)
+          ipAddress (16)
+          port (u16 BE)
+          scriptOperatorPayout (varbytes)
+          inputsHash (32)
+          [platformNodeID (20) + platformP2PPort (2) + platformHTTPPort (2)] if mn_type == 1 and platformNodeID set
+          payloadSig (raw bytes, 90 or 96)
         """
-        # --- sanity checks ---
-        assert len(self.proTxHash) == 32, f'{len(self.proTxHash)} not 32'
-        assert len(self.inputsHash) == 32, f'{len(self.inputsHash)} not 32'
+        assert len(self.proTxHash) == 32, f"{len(self.proTxHash)} not 32"
+        assert len(self.inputsHash) == 32, f"{len(self.inputsHash)} not 32"
 
-        # Normalize and serialize IP + port
         ip_obj = ip_address(self.ipAddress)
-        ip_bytes = serialize_ip(ip_obj)  # always 16 bytes IPv6-mapped
-        assert len(ip_bytes) == 16, 'serialized IP must be 16 bytes'
-        port_be = struct.pack('>H', self.port)  # network byte order (big-endian)
+        ip_bytes = serialize_ip(ip_obj)
+        assert len(ip_bytes) == 16, "serialized IP must be 16 bytes"
 
-        # Determine signature serialization
-        if full:
-            if getattr(self, 'version', 1) < 2:
-                # --- Legacy (v1): signature uses CompactSize prefix ---
-                payloadSig = to_varbytes(self.payloadSig)
-            else:
-                # --- v2+: raw signature, no prefix ---
-                assert len(self.payloadSig) in (90, 96), \
-                    f'Unexpected payloadSig length {len(self.payloadSig)} (expected 90/96)'
-                payloadSig = self.payloadSig
+        script = self.scriptOperatorPayout or b""
+
+        out = bytearray()
+        out += struct.pack("<H", self.version)
+
+        if self.version >= 2:
+            if getattr(self, "mn_type", None) is None:
+                raise ValueError("mn_type is required for ProUpServTx version >= 2")
+            out += struct.pack("<H", self.mn_type)
+
+        out += self.proTxHash
+        out += ip_bytes
+        out += struct.pack(">H", self.port)
+        out += to_varbytes(script)
+        out += self.inputsHash
+
+        # Optional platform fields (v2+ and mn_type == 1)
+        if self.version >= 2 and getattr(self, "mn_type", 0) == 1:
+            node_id = getattr(self, "platformNodeID", b"") or b""
+            p2p = getattr(self, "platformP2PPort", 0)
+            http = getattr(self, "platformHTTPPort", 0)
+
+            # Write platform fields only if node_id is present
+            if node_id:
+                if len(node_id) != 20:
+                    raise ValueError("platformNodeID must be 20 bytes")
+                if not (1 <= int(p2p) <= 65535):
+                    raise ValueError("Invalid platformP2PPort")
+                if not (1 <= int(http) <= 65535):
+                    raise ValueError("Invalid platformHTTPPort")
+                if int(p2p) == int(http):
+                    raise ValueError("Platform ports must differ")
+
+                out += node_id
+
+                # NOTE: These ports are written as LE here to match existing Electrum-Dash behavior/tests.
+                out += struct.pack("<H", int(p2p))
+                out += struct.pack("<H", int(http))
+
+        # Signature
+        if not full:
+            sig_part = b""
         else:
-            payloadSig = b''
+            if self.version < 2:
+                sig_part = to_varbytes(self.payloadSig or b"")
+            else:
+                sig_len = len(self.payloadSig or b"")
+                if sig_len not in (90, 96):
+                    raise ValueError(f"payloadSig length must be 90 or 96 (got {sig_len})")
+                sig_part = self.payloadSig
 
-        # --- Begin writing ---
-        serialized = struct.pack('<H', self.version)  # payloadVersion (LE)
-
-        # Add masternode type if present (v2+)
-        if getattr(self, 'mn_type', None) is not None:
-            serialized += struct.pack('<H', self.mn_type)
-
-        # Common fields
-        serialized += (
-                self.proTxHash +  # proTxHash
-                ip_bytes +  # ipAddress (IPv6 mapped)
-                port_be +  # port (BE)
-                to_varbytes(self.scriptOperatorPayout or b'') +  # scriptOperatorPayout
-                self.inputsHash  # inputsHash
-        )
-
-        # --- Optional platform fields (v2 type-1 only) ---
-        platformNodeID = getattr(self, 'platformNodeID', b'') or b''
-        if platformNodeID:
-            # 20-byte NodeID + two BE ports (present only if mn_type == 1)
-            assert len(platformNodeID) == 20, 'platformNodeID must be 20 bytes'
-            serialized += platformNodeID
-            serialized += struct.pack('<H', self.platformP2PPort)  # Discrepancy with documentation. According to the documentation, BE (network byte order), but actually accepts LE.
-            serialized += struct.pack('<H', self.platformHTTPPort) # Discrepancy with documentation. According to the documentation, BE (network byte order), but actually accepts LE.
-
-        # --- Append payload signature ---
-        serialized += payloadSig
-
-        return serialized
+        out += sig_part
+        return bytes(out)
 
     @classmethod
     def read_vds(cls, vds):
+        version = vds.read_uint16()
         mn_type = None
 
-        # Defaults for optional platform fields
-        platformNodeID = b''
-        platformP2PPort = None
-        platformHTTPPort = None
-
-        version = vds.read_uint16()  # version
         if version >= 2:
-            mn_type = vds.read_uint16()  # TX Type
+            mn_type = vds.read_uint16()
 
-        proTxHash = vds.read_bytes(32)  # proTxHash
-        ipAddress = vds.read_bytes(16)  # ipAddress
-        port = read_uint16_nbo(vds)  # port
-        scriptOperatorPayout = read_varbytes(vds)  # scriptOperatorPayout
-        inputsHash = vds.read_bytes(32)  # inputsHash
+        proTxHash = vds.read_bytes(32)
+        ip_bytes = vds.read_bytes(16)
+        port = read_uint16_nbo(vds)
+        scriptOperatorPayout = read_varbytes(vds)
+        inputsHash = vds.read_bytes(32)
 
-        if version >= 2 and mn_type == 1:
-            platformNodeID = vds.read_bytes(20)  # 20 bytes
-            platformP2PPort = vds.read_uint16()  # 2 bytes LE
-            platformHTTPPort = vds.read_uint16()  # 2 bytes LE
+        platformNodeID = b""
+        platformP2PPort = 0
+        platformHTTPPort = 0
 
-        # payloadSig
         if version < 2:
+            # v1: payloadSig is varbytes
             payloadSig = read_varbytes(vds)
         else:
+            # v2+: may contain optional platform fields when mn_type == 1
             remaining = len(vds.input) - vds.read_cursor
+
+            # If platform fields are present, remaining must be 24 + sig(90/96)
+            if mn_type == 1 and remaining in (24 + 90, 24 + 96):
+                platformNodeID = vds.read_bytes(20)
+                # NOTE: Read as LE to match serialize() above
+                platformP2PPort = vds.read_uint16()
+                platformHTTPPort = vds.read_uint16()
+                remaining = len(vds.input) - vds.read_cursor
+
             if remaining not in (90, 96):
                 raise ValueError(f"Unexpected payloadSig size: {remaining} bytes")
+
             payloadSig = vds.read_bytes(remaining)
 
-        ipAddress = ip_address(bytes(ipAddress))
-        if ipAddress.ipv4_mapped:
-            ipAddress = str(ipAddress.ipv4_mapped)
-        else:
-            ipAddress = str(ipAddress)
+        ip_obj = ip_address(bytes(ip_bytes))
+        ip_str = str(ip_obj.ipv4_mapped) if ip_obj.ipv4_mapped else str(ip_obj)
 
         return DashProUpServTx(
             version,
             proTxHash,
-            ipAddress,
+            ip_str,
             port,
             scriptOperatorPayout,
             inputsHash,
@@ -578,55 +616,35 @@ class DashProUpServTx(ProTxBase):
         )
 
     def update_with_tx_data(self, tx):
-        outpoints = [TxOutPoint(bfh(i.prevout.txid.hex())[::-1],
-                                i.prevout.out_idx)
-                     for i in tx.inputs()]
-        outpoints_ser = [o.serialize() for o in outpoints]
-        self.inputsHash = sha256d(b''.join(outpoints_ser))
+        outpoints = [
+            TxOutPoint(bfh(i.prevout.txid.hex())[::-1], i.prevout.out_idx)
+            for i in tx.inputs()
+        ]
+        self.inputsHash = sha256d(b"".join(o.serialize() for o in outpoints))
 
     def update_before_sign(self, tx, wallet, password):
-        protx_hash = bh2u(self.proTxHash[::-1])  # Get the proTxHash in the required format
+        protx_hash = bh2u(self.proTxHash[::-1])
         manager = wallet.protx_manager
         bls_privk_bytes = None
 
-        # Find the operator's private key for the given proTxHash
         for mn in manager.mns.values():
             if protx_hash == mn.protx_hash:
-                bls_privk_bytes = bfh(mn.bls_privk)  # Convert hex to bytes
+                bls_privk_bytes = bfh(mn.bls_privk)
                 break
 
         if not bls_privk_bytes:
             raise ValueError("Operator's private key not found for the given proTxHash.")
 
-        # Serialize data without a signature
-        serialized_data = self.serialize(full=False)
+        serialized_hash = sha256d(self.serialize(full=False))
 
         if self.version == 1:
-            # Version 1: Use legacy BLS scheme
-            # Create a private key using the legacy BLS scheme for version 1
             bls_privk = bls.PrivateKey.from_bytes(bls_privk_bytes)
-
-            # Hash the data
-            serialized_hash = sha256d(serialized_data)
-
-            # Sign using the legacy BLS scheme
             bls_sig = bls_privk.sign_prehashed(serialized_hash)
-
             bls_sig_bytes = bls_sig.serialize()
-
         elif self.version == 2:
-            # Version 2: Use the new BLS scheme (BasicSchemeMPL)
-            # Create a private key using G2Element for version 2
             bls_privk = PrivateKey.from_bytes(bls_privk_bytes)
-
-            # Hash the data with the key type
-            serialized_hash = sha256d(serialized_data)
-
-            # Sign using BasicSchemeMPL
             bls_sig = BasicSchemeMPL.sign(bls_privk, serialized_hash)
-
             bls_sig_bytes = bls_sig.__bytes__()
-
         else:
             raise ValueError(f"Unsupported ProUpServTx version: {self.version}")
 
@@ -641,18 +659,14 @@ class DashProUpRegTx(ProTxBase):
                  'payloadSig').split()
 
     def __str__(self):
-        return ('ProUpRegTx Version: %s\n'
-                'proTxHash: %s\n'
-                'mode: %s\n'
-                'PubKeyOperator: %s\n'
-                'KeyIdVoting: %s\n'
-                'scriptPayout: %s\n'
-                % (self.version,
-                   bh2u(self.proTxHash[::-1]),
-                   self.mode,
-                   bh2u(self.PubKeyOperator),
-                   bh2u(self.KeyIdVoting),
-                   bh2u(self.scriptPayout)))
+        return (
+            f"ProUpRegTx Version: {self.version}\n"
+            f"proTxHash: {bh2u(self.proTxHash[::-1])}\n"
+            f"mode: {self.mode}\n"
+            f"PubKeyOperator: {bh2u(self.PubKeyOperator)}\n"
+            f"KeyIdVoting: {bh2u(self.KeyIdVoting)}\n"
+            f"scriptPayout: {bh2u(self.scriptPayout)}\n"
+        )
 
     def serialize(self, full=True):
         assert len(self.proTxHash) == 32, \
@@ -736,12 +750,11 @@ class DashProUpRevTx(ProTxBase):
                  'inputsHash payloadSig').split()
 
     def __str__(self):
-        return ('ProUpRevTx Version: %s\n'
-                'proTxHash: %s\n'
-                'reason: %s\n'
-                % (self.version,
-                   bh2u(self.proTxHash[::-1]),
-                   revoke_reason_str(self.reason)))
+        return (
+            f"ProUpRevTx Version: {self.version}\n"
+            f"proTxHash: {bh2u(self.proTxHash[::-1])}\n"
+            f"reason: {revoke_reason_str(self.reason)}\n"
+        )
 
     def serialize(self, full=True):
         assert len(self.proTxHash) == 32, \
@@ -797,21 +810,20 @@ class DashCbTx(ProTxBase):
     __slots__ = ('version height merkleRootMNList merkleRootQuorums bestCLHeightDiff bestCLSignature assetLockedAmount').split()
 
     def __str__(self):
-        res = ('CbTx Version: %s\n'
-               'height: %s\n'
-               'merkleRootMNList: %s\n'
-               % (self.version, self.height,
-                  bh2u(self.merkleRootMNList[::-1])))
+        res = (
+            f"CbTx Version: {self.version}\n"
+            f"height: {self.height}\n"
+            f"merkleRootMNList: {bh2u(self.merkleRootMNList[::-1])}\n"
+        )
+
         if self.version > 1:
-            res += ('merkleRootQuorums: %s\n' %
-                    bh2u(self.merkleRootQuorums[::-1]))
+            res += f"merkleRootQuorums: {bh2u(self.merkleRootQuorums[::-1])}\n"
+
         if self.version > 2:
-            res += ('bestCLHeightDiff: %s\n' %
-                    self.bestCLHeightDiff)
-            res += ('bestCLSignature: %s\n' %
-                    bh2u(self.bestCLSignature[::-1]))
-            res += ('assetLockedAmount: %s\n' %
-                    self.assetLockedAmount)
+            res += f"bestCLHeightDiff: {self.bestCLHeightDiff}\n"
+            res += f"bestCLSignature: {bh2u(self.bestCLSignature[::-1])}\n"
+            res += f"assetLockedAmount: {self.assetLockedAmount}\n"
+
         return res
 
     def serialize(self):
@@ -865,17 +877,17 @@ class AssetLockTx(ProTxBase):
 
     def __str__(self):
         outputs_str = '\n'.join(
-            ['  - Value: {}\n    ScriptPubKey: {}'.format(
-                credit_output[0], bh2u(credit_output[1])) for credit_output in self.creditOutputs])
-        return ('AssetLockTx\n'
-                'Version: {}\n'
-                'Count: {}\n'
-                'Credit Outputs:\n{}\n'
-                .format(
-                    self.version,
-                    self.count,
-                    outputs_str
-                ))
+            f"  - Value: {value}\n    ScriptPubKey: {bh2u(script)}"
+            for value, script in self.creditOutputs
+        )
+
+        return (
+            "AssetLockTx\n"
+            f"Version: {self.version}\n"
+            f"Count: {self.count}\n"
+            "Credit Outputs:\n"
+            f"{outputs_str}\n"
+        )
 
     def serialize(self):
         res = b''
@@ -911,21 +923,15 @@ class AssetUnlockTx(ProTxBase):
         self.quorumSig = quorumSig          # quorumSig (bytes(96))
 
     def __str__(self):
-        return ('AssetUnlockTx\n'
-                'Version: {}\n'
-                'Index: {}\n'
-                'Fee: {}\n'
-                'Sign Height: {}\n'
-                'Quorum Hash: {}\n'
-                'Quorum Signature: {}\n'
-                .format(
-                    self.version,
-                    self.index,
-                    self.fee,
-                    self.signHeight,
-                    bh2u(self.quorumHash[::-1]),
-                    bh2u(self.quorumSig)
-                ))
+        return (
+            "AssetUnlockTx\n"
+            f"Version: {self.version}\n"
+            f"Index: {self.index}\n"
+            f"Fee: {self.fee}\n"
+            f"Sign Height: {self.signHeight}\n"
+            f"Quorum Hash: {bh2u(self.quorumHash[::-1])}\n"
+            f"Quorum Signature: {bh2u(self.quorumSig)}\n"
+        )
 
     def serialize(self):
         res = b''
