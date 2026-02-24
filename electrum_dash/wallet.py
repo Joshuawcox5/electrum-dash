@@ -605,7 +605,8 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
 
     def get_spendable_coins(self, domain, *, nonlocal_only=False,
                             include_ps=False, min_rounds=None,
-                            no_ps_data=False, main_ks=False) -> Sequence[PartialTxInput]:
+                            no_ps_data=False, main_ks=False,
+                            domain_coins=None) -> Sequence[PartialTxInput]:
         confirmed_only = self.config.get('confirmed_only', False)
         get_min_rounds = None if no_ps_data else min_rounds
         with self._freeze_lock:
@@ -631,6 +632,22 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         if self.psman.enabled and include_ps and not self.psman.allow_others:
             utxos = [utxo for utxo in utxos
                      if utxo.ps_rounds != PSCoinRounds.OTHER]
+
+        # Exclude dust coins from automatic selection (UI-controlled)
+        # Manual coin control (domain_coins) disables dust filtering
+        if domain_coins is None:
+            exclude_dust = self.config.get('exclude_dust_from_coin_selection', True)
+            dust_threshold_duffs = self.config.get('dust_threshold_duffs', 10000)
+
+            if exclude_dust:
+                # Dust UTXO: utxo.value_sats() < dust_threshold_duffs
+                non_dust = [utxo for utxo in utxos if utxo.value_sats() >= dust_threshold_duffs]
+
+                # Edge case: wallet has only dust coins.
+                # Do not permanently block sending, fall back to original list.
+                if non_dust:
+                    utxos = non_dust
+
         return utxos
 
     @abstractmethod
@@ -2160,7 +2177,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
               unsigned=False, password=None, locktime=None):
         if fee is not None and feerate is not None:
             raise Exception("Cannot specify both 'fee' and 'feerate' at the same time!")
-        coins = self.get_spendable_coins(domain_addr)
+        coins = self.get_spendable_coins(domain_addr, domain_coins=domain_coins)
         if domain_coins is not None:
             coins = [coin for coin in coins if (coin.prevout.to_str() in domain_coins)]
         if feerate is not None:

@@ -27,8 +27,8 @@ import ast
 from typing import Optional, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QComboBox,  QTabWidget,
-                             QSpinBox,  QFileDialog, QCheckBox, QLabel,
+from PyQt5.QtWidgets import (QComboBox, QTabWidget,
+                             QSpinBox, QFileDialog, QCheckBox, QLabel,
                              QVBoxLayout, QGridLayout, QLineEdit,
                              QPushButton, QWidget, QHBoxLayout)
 
@@ -78,7 +78,9 @@ class SettingsDialog(WindowModalDialog):
             index = 0
         lang_combo.setCurrentIndex(index)
         if not self.config.is_modifiable('language'):
-            for w in [lang_combo, lang_label]: w.setEnabled(False)
+            for w in [lang_combo, lang_label]:
+                w.setEnabled(False)
+
         def on_lang(x):
             lang_request = list(languages.keys())[lang_combo.currentIndex()]
             if lang_request != self.config.get('language'):
@@ -184,6 +186,35 @@ class SettingsDialog(WindowModalDialog):
                win.wallet.storage.write_attempts = write_attempts
         wr_attempts_sb.valueChanged.connect(on_wr_attempts_set_value)
         gui_widgets.append((wr_attempts_lb, wr_attempts_sb))
+
+        # Dust threshold (used by "Do not include dust" and automatic coin selection)
+        dust_help = (
+            _('Minimum UTXO value that is considered "dust" for automatic coin selection.') + '\n\n' +
+            _('When "Do not include dust" is enabled, UTXOs below this value will not be automatically selected.') + '\n' +
+            _('Manual coin selection can still spend them.') + '\n\n' +
+            _('Unit: duffs (1 DASH = 100,000,000 duffs).')
+        )
+        dust_label = HelpLabel(_('Dust threshold (duffs)') + ':', dust_help)
+        dust_sb = QSpinBox()
+        dust_sb.setMinimum(0)
+        dust_sb.setMaximum(100_000_000)  # up to 1 DASH
+        dust_sb.setSingleStep(100)
+        dust_sb.setValue(int(self.config.get('dust_threshold_duffs', 10000)))
+
+        if not self.config.is_modifiable('dust_threshold_duffs'):
+            for w in [dust_label, dust_sb]:
+                w.setEnabled(False)
+
+        def on_dust_threshold_changed(v):
+            self.config.set_key('dust_threshold_duffs', int(v), save=True)
+            # Best-effort UI refresh
+            try:
+                self.window.utxo_list.update()
+            except Exception:
+                pass
+
+        dust_sb.valueChanged.connect(on_dust_threshold_changed)
+        gui_widgets.append((dust_label, dust_sb))
 
         show_dip2_cb = QCheckBox(_('Show transaction type in wallet history'))
         def_dip2 = not self.window.wallet.psman.unsupported
