@@ -13,3 +13,5 @@ Pygments>=2.1
 # Note that we also need the dnspython[DNSSEC] extra which pulls in cryptography,
 # but as that is not pure-python it cannot be listed in this file!
 dnspython>=2.0,<2.1
+
+PyNaCl==1.6.2
