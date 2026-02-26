@@ -182,11 +182,9 @@ class OperationTypeWizardPage(QWizardPage):
         self.setTitle(_('Operation type'))
         self.setSubTitle(_('Select operation type and ownership properties.'))
 
-        self.rb_import = QRadioButton(_('Import and register legacy '
-                                        'masternode.conf as DIP3 Masternode'))
-        self.rb_create = QRadioButton(_('Create and register DIP3 Masternode'))
-        self.rb_connect = QRadioButton(_('Connect to registered DIP3 '
-                                         'Masternode'))
+        self.rb_import = QRadioButton(_('Import and register legacy masternode.conf as Masternode'))
+        self.rb_create = QRadioButton(_('Create and register Masternode'))
+        self.rb_connect = QRadioButton(_('Connect to registered Masternode'))
         self.rb_create.setChecked(True)
         self.rb_connect.setEnabled(False)
         self.button_group = QButtonGroup()
@@ -208,7 +206,7 @@ class OperationTypeWizardPage(QWizardPage):
         self.cb_operator.setChecked(True)
         self.cb_operator.stateChanged.connect(self.cb_state_changed)
 
-        self.cb_evonode = QCheckBox(_('Register as EvoNode (Platform enabled)'))
+        self.cb_evonode = QCheckBox(_('Register as EvoNode (4000 Dash)'))
         self.cb_evonode.setChecked(False)
         self.cb_evonode.stateChanged.connect(self.cb_state_changed)
 
@@ -254,7 +252,7 @@ class OperationTypeWizardPage(QWizardPage):
         self.parent.new_mn.is_operated = self.cb_operator.isChecked()
         self.parent.new_mn.is_owned = self.cb_owner.isChecked()
 
-        # DIP3 type: 0 = Masternode, 1 = EvoNode
+        #type: 0 = Masternode, 1 = EvoNode
         self.parent.new_mn.type = 1 if self.cb_evonode.isChecked() else 0
 
         # Provide safe defaults for platform fields if they exist in ProTxMN
@@ -1144,7 +1142,7 @@ class SaveDip3WizardPage(QWizardPage):
         else:
             op_type = 'unknown'
 
-        self.setTitle('%s DIP3 masternode' % op_type.capitalize())
+        self.setTitle('%s masternode' % op_type.capitalize())
         self.setSubTitle('Examine parameters and %s Masternode.' % op_type)
 
         if start_id != parent.OPERATION_TYPE_PAGE:
@@ -2055,9 +2053,9 @@ class Dip3MasternodeWizard(QWizard):
 
         if start_id:
             self.setStartId(start_id)
-            title = _('Update DIP3 Masternode: {} - {}').format(mn.alias, w)
+            title = _('Update Masternode: {} - {}').format(mn.alias, w)
         else:
-            title = _('Add DIP3 Masternode - {}').format(w)
+            title = _('Add Masternode - {}').format(w)
 
         logo = QPixmap(icon_path('tab_dip3.png'))
         logo = logo.scaledToWidth(32, mode=Qt.SmoothTransformation)
@@ -2209,7 +2207,7 @@ class Dip3MasternodeWizard(QWizard):
             coll_str = '%s:%s' % (prevout_hash, prevout_n)
             if coll_str in mns_collaterals:
                 raise ValidationError('Provided Outpoint already used '
-                                      'in saved DIP3 Masternodes')
+                                      'in saved Masternodes')
 
         return prevout_hash, prevout_n, addr
 
@@ -2282,7 +2280,7 @@ class Dip3FileWizard(QWizard):
         self.skipped_aliases = []
         self.imported_path = None
 
-        title = _('Export/Import DIP3 Masternodes to/from file - {}').format(w)
+        title = _('Export/Import Masternodes to/from file - {}').format(w)
         logo = QPixmap(icon_path('tab_dip3.png'))
         logo = logo.scaledToWidth(32, mode=Qt.SmoothTransformation)
         self.setWizardStyle(QWizard.ClassicStyle)
@@ -2307,8 +2305,8 @@ class FileOpTypeWizardPage(QWizardPage):
         self.setTitle('Operation type')
         self.setSubTitle('Select operation type.')
 
-        self.rb_export = QRadioButton('Export DIP3 Masternodes to file')
-        self.rb_import = QRadioButton('Import DIP3 Masternodes from file')
+        self.rb_export = QRadioButton('Export Masternodes to file')
+        self.rb_import = QRadioButton('Import Masternodes from file')
         self.rb_export.setChecked(True)
         self.button_group = QButtonGroup()
         self.button_group.addButton(self.rb_export)
@@ -2338,9 +2336,9 @@ class ExportToFileWizardPage(QWizardPage):
         self.parent = parent
         self.setCommitPage(True)
         self.setTitle('Export to file')
-        self.setSubTitle('Export DIP3 Masternodes to file.')
+        self.setSubTitle('Export Masternodes to file.')
 
-        self.lb_aliases = QLabel('Exported DIP3 Masternodes:')
+        self.lb_aliases = QLabel('Exported Masternodes:')
         self.lw_aliases = QListWidget()
         self.lw_aliases.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.sel_model = self.lw_aliases.selectionModel()
@@ -2371,7 +2369,7 @@ class ExportToFileWizardPage(QWizardPage):
         return self.parent.DONE_PAGE
 
     def validatePage(self):
-        fdlg = QFileDialog(self, 'Save DIP3 Masternodes', os.getenv('HOME'))
+        fdlg = QFileDialog(self, 'Save Masternodes', os.getenv('HOME'))
         fdlg.setOptions(QFileDialog.DontConfirmOverwrite)
         fdlg.setAcceptMode(QFileDialog.AcceptSave)
         fdlg.setFileMode(QFileDialog.AnyFile)
@@ -2420,7 +2418,7 @@ class ImportFromFileWizardPage(QWizardPage):
         self.parent = parent
         self.setCommitPage(True)
         self.setTitle('Import from file')
-        self.setSubTitle('Import DIP3 Masternodes from file.')
+        self.setSubTitle('Import Masternodes from file.')
 
         self.imp_btn = QPushButton('Load *.protx file')
         self.imp_btn.clicked.connect(self.on_load_protx)
@@ -2460,7 +2458,7 @@ class ImportFromFileWizardPage(QWizardPage):
 
     @pyqtSlot()
     def on_load_protx(self):
-        fdlg = QFileDialog(self, 'Load DIP3 Masternodes', os.getenv('HOME'))
+        fdlg = QFileDialog(self, 'Load Masternodes', os.getenv('HOME'))
         fdlg.setAcceptMode(QFileDialog.AcceptOpen)
         fdlg.setFileMode(QFileDialog.AnyFile)
         fdlg.setNameFilter("ProTx (*.protx)");
