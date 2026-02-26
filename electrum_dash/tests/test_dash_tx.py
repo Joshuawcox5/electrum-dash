@@ -450,8 +450,19 @@ class TestDashSpecTxSerialization(SequentialTestCase):
         deser = tx.to_json()
         assert deser['version'] == 3
         assert deser['tx_type'] == 1
+
         extra_dict = deser['extra_payload']
-        assert extra_dict == PRO_REG_TX_D
+
+        # Backward-compatible check: all legacy fields must match exactly.
+        for k, v in PRO_REG_TX_D.items():
+            assert extra_dict[k] == v
+
+        # Platform fields might be present in JSON (for EvoNode compatibility).
+        # For regular masternodes (type=0) they must be defaults if present.
+        assert extra_dict.get('platformNodeID', '') == ''
+        assert extra_dict.get('platformP2PPort', 0) == 0
+        assert extra_dict.get('platformHTTPPort', 0) == 0
+
         extra = tx.extra_payload
         assert str(extra)
         assert extra.version == PRO_REG_TX_D['version']
@@ -473,6 +484,7 @@ class TestDashSpecTxSerialization(SequentialTestCase):
         assert len(extra.inputsHash) == 32
         assert extra.inputsHash == bfh(PRO_REG_TX_D['inputsHash'])
         assert extra.payloadSig == bfh(PRO_REG_TX_D['payloadSig'])
+
         ser = tx.serialize()
         assert ser == PRO_REG_TX
 
