@@ -29,10 +29,12 @@ import threading
 from . import constants, util
 from .bitcoin import address_to_script, is_b58_address, b58_address_to_hash160
 from .protx_list import MNList
-from .dash_tx import (TxOutPoint, ProTxService, DashProRegTx, DashProUpServTx,
-                      DashProUpRegTx, DashProUpRevTx,
-                      SPEC_PRO_REG_TX, SPEC_PRO_UP_SERV_TX,
-                      SPEC_PRO_UP_REG_TX, SPEC_PRO_UP_REV_TX, str_ip)
+from .dash_tx import (
+    TxOutPoint, ProTxService, DashProRegTx, DashProUpServTx,
+    DashProUpRegTx, DashProUpRevTx,
+    SPEC_PRO_REG_TX, SPEC_PRO_UP_SERV_TX,
+    SPEC_PRO_UP_REG_TX, SPEC_PRO_UP_REV_TX, str_ip
+)
 from .util import bfh, bh2u
 from .json_db import StoredDict
 from .logging import Logger
@@ -46,19 +48,30 @@ PROTX_TX_TYPES = [
 ]
 
 
-class ProTxMNExc(Exception): pass
+def _script_from_address(addr: str) -> bytes:
+    # address_to_script may return bytes OR hex string depending on fork/version
+    scr = address_to_script(addr)
+    if isinstance(scr, (bytes, bytearray)):
+        return bytes(scr)
+    if isinstance(scr, str):
+        return bfh(scr)
+    raise TypeError('address_to_script returned unsupported type: %s' % type(scr).__name__)
+
+
+class ProTxMNExc(Exception):
+    pass
 
 
 class ProTxMN:
     '''
-    Masternode data with next properties:
+    Masternode/EvoNode data with next properties:
 
     alias               MN alias
-    is_owned            This wallet is has owner_addr privk
-    is_operated         This wallet must generate BLS privk
-    bls_privk           Random BLS key
+    is_owned            This wallet has owner_addr privk
+    is_operated         This wallet operates and must have BLS privk
+    bls_privk           Random BLS private key (hex)
 
-    type                MN type
+    type                MN type (0 = Masternode, 1 = EvoNode)
     mode                MN mode
     collateral          TxOutPoint collateral data
     service             ProTxService masternode service data
@@ -69,12 +82,20 @@ class ProTxMN:
     payout_address      Payee address
     op_payout_address   Operator payee address
 
-    protx_hash          Hash of ProRegTx transaction
+    protx_hash          Hash of ProRegTx transaction (hex, big-endian)
+
+    platform_node_id    EvoNode only: 20-byte Node ID hex (40 chars)
+    platform_p2p_port   EvoNode only: Platform P2P port
+    platform_http_port  EvoNode only: Platform HTTP port
     '''
 
-    fields = ('alias is_owned is_operated bls_privk type mode '
-              'collateral service owner_addr pubkey_operator voting_addr '
-              'op_reward payout_address op_payout_address protx_hash').split()
+    fields = (
+        'alias is_owned is_operated bls_privk type mode '
+        'collateral service owner_addr pubkey_operator voting_addr '
+        'op_reward payout_address op_payout_address protx_hash '
+        'platform_node_id platform_p2p_port platform_http_port '
+        'platform_ed25519_privkey platform_ed25519_pubkey'
+    ).split()
 
     def __init__(self):
         self.alias = ''
@@ -94,6 +115,13 @@ class ProTxMN:
         self.op_payout_address = ''
 
         self.protx_hash = ''
+
+        # EvoNode / Platform fields
+        self.platform_node_id = ''
+        self.platform_p2p_port = 26656
+        self.platform_http_port = 443
+        self.platform_ed25519_privkey = ''
+        self.platform_ed25519_pubkey = ''
 
     @classmethod
     def default_port(cls):
@@ -119,6 +147,12 @@ class ProTxMN:
         mn = ProTxMN()
         for f in cls.fields:
             if f not in d:
+                # Backward compatibility: older stored data does not have platform fields
+                if f in (
+                        'platform_node_id', 'platform_p2p_port', 'platform_http_port',
+                        'platform_ed25519_privkey', 'platform_ed25519_pubkey'
+                ):
+                    continue
                 raise ProTxMNExc('Key %s is missing in supplied dict')
             v = d[f]
             if isinstance(v, StoredDict):
@@ -131,13 +165,28 @@ class ProTxMN:
                 setattr(mn, f, ProTxService(**v))
             else:
                 setattr(mn, f, v)
+
+        # Ensure defaults if missing
+        if not getattr(mn, 'platform_node_id', None):
+            mn.platform_node_id = ''
+        if getattr(mn, 'platform_p2p_port', None) is None:
+            mn.platform_p2p_port = 0
+        if getattr(mn, 'platform_http_port', None) is None:
+            mn.platform_http_port = 0
+        if not getattr(mn, 'platform_ed25519_privkey', None):
+            mn.platform_ed25519_privkey = ''
+        if not getattr(mn, 'platform_ed25519_pubkey', None):
+            mn.platform_ed25519_pubkey = ''
+
         return mn
 
 
-class ProTxManagerExc(Exception): pass
+class ProTxManagerExc(Exception):
+    pass
 
 
-class ProRegTxExc(Exception): pass
+class ProRegTxExc(Exception):
+    pass
 
 
 class ProTxManager(Logger):
@@ -257,6 +306,28 @@ class ProTxManager(Logger):
         del self.mns[alias]
         self.save(with_lock=False)
 
+    def _validate_platform_fields(self, mn):
+        # Required only for EvoNode (type == 1)
+        if int(getattr(mn, 'type', 0)) != 1:
+            return
+
+        node_id = (getattr(mn, 'platform_node_id', '') or '').strip()
+        if len(node_id) != 40 or node_id.strip('0123456789abcdefABCDEF'):
+            raise ProRegTxExc('Platform Node ID must be 20 bytes hex (40 chars)')
+
+        try:
+            p2p = int(getattr(mn, 'platform_p2p_port', 0))
+            http = int(getattr(mn, 'platform_http_port', 0))
+        except Exception:
+            raise ProRegTxExc('Platform ports must be integers')
+
+        if not (1 <= p2p <= 65535) or not (1 <= http <= 65535):
+            raise ProRegTxExc('Platform ports must be in range 1-65535')
+
+        if p2p == http:
+            raise ProRegTxExc('Platform P2P port and HTTP port must differ')
+
+
     def prepare_pro_reg_tx(self, alias):
         '''Prepare and return ProRegTx from ProTxMN alias'''
         mn = self.mns.get('%s' % alias)
@@ -296,16 +367,75 @@ class ProTxManager(Logger):
         if not is_b58_address(mn.payout_address):
             raise ProRegTxExc('Payout address is not address')
 
-        scriptPayout = bfh(address_to_script(mn.payout_address))
+        scriptPayout = _script_from_address(mn.payout_address)
         KeyIdOwner = b58_address_to_hash160(mn.owner_addr)[1]
         PubKeyOperator = bfh(mn.pubkey_operator)
         KeyIdVoting = b58_address_to_hash160(mn.voting_addr)[1]
-        payloadSig = b'' if coll_hash_is_null else b'\x00'*65
 
-        tx = DashProRegTx(2, mn.type, mn.mode, mn.collateral, mn.service.ip,
-                          mn.service.port, KeyIdOwner, PubKeyOperator,
-                          KeyIdVoting, mn.op_reward, scriptPayout,
-                          b'\x00'*32, payloadSig)
+        # For in-tx collateral (hash null), payloadSig must be empty.
+        # Otherwise, placeholder 65 bytes is used and later replaced by update_before_sign.
+        payloadSig = b'' if coll_hash_is_null else b'\x00' * 65
+
+        # ---- platform defaults ----
+        if int(getattr(mn, 'type', 0)) == 1:
+            node_id_hex = (getattr(mn, 'platform_node_id', '') or '').strip()
+            if not node_id_hex:
+                raise ProRegTxExc('Platform Node ID is not set for EvoNode')
+
+            try:
+                platform_node_id = bfh(node_id_hex)
+            except Exception:
+                raise ProRegTxExc('Platform Node ID must be valid hex')
+
+            if len(platform_node_id) != 20:
+                raise ProRegTxExc('Platform Node ID must be 20 bytes')
+
+            platform_p2p_port = int(mn.platform_p2p_port)
+            platform_http_port = int(mn.platform_http_port)
+        else:
+            platform_node_id = b'\x00' * 20
+            platform_p2p_port = 0
+            platform_http_port = 0
+        # ----------------------------
+
+        # Newer DashProRegTx in your fork likely expects platform fields as well.
+        # Try the "full" evonode-compatible argument list first, then fallback.
+        try:
+            tx = DashProRegTx(
+                2,
+                int(mn.type),
+                int(mn.mode),
+                mn.collateral,
+                mn.service.ip,
+                int(mn.service.port),
+                KeyIdOwner,
+                PubKeyOperator,
+                KeyIdVoting,
+                int(mn.op_reward),
+                scriptPayout,
+                b'\x00' * 32,  # inputsHash
+                platform_node_id,
+                int(platform_p2p_port),
+                int(platform_http_port),
+                payloadSig,
+            )
+        except (TypeError, IndexError):
+            # Fallback for older constructor variants
+            tx = DashProRegTx(
+                2,
+                int(mn.type),
+                int(mn.mode),
+                mn.collateral,
+                mn.service.ip,
+                int(mn.service.port),
+                KeyIdOwner,
+                PubKeyOperator,
+                KeyIdVoting,
+                int(mn.op_reward),
+                scriptPayout,
+                b'\x00' * 32,
+                payloadSig,
+            )
 
         if not coll_hash_is_null:
             tx.payload_sig_msg_part = ('%s|%s|%s|%s|' %
@@ -316,7 +446,7 @@ class ProTxManager(Logger):
         return tx
 
     def prepare_pro_up_srv_tx(self, mn):
-        '''Prepare and return ProUpServTx from ProTxMN alias'''
+        '''Prepare and return ProUpServTx from ProTxMN'''
         if not mn.protx_hash:
             raise ProRegTxExc('Masternode has no proTxHash')
 
@@ -326,20 +456,50 @@ class ProTxManager(Logger):
         if not mn.service.ip:
             raise ProRegTxExc('Service IP address is not set')
 
+        self._validate_platform_fields(mn)
+
         if mn.op_payout_address:
             if not is_b58_address(mn.op_payout_address):
                 raise ProRegTxExc('Operator payout address is not address')
-            scriptOpPayout = bfh(address_to_script(mn.op_payout_address))
+            scriptOpPayout = _script_from_address(mn.op_payout_address)
         else:
             scriptOpPayout = b''
 
-        tx = DashProUpServTx(2, bfh(mn.protx_hash)[::-1],
-                             mn.service.ip, mn.service.port,
-                             scriptOpPayout, b'\x00'*32, b'\x00'*96, 0)
+        # Important: payloadSig placeholder must be 96 bytes for BLS
+        payloadSig = b'\x00' * 96
+        inputsHash = b'\x00' * 32
+
+        # EvoNode: try constructor with platform fields
+        if int(mn.type) == 1:
+            platform_node_id = bfh(mn.platform_node_id)
+            try:
+                tx = DashProUpServTx(
+                    2, bfh(mn.protx_hash)[::-1],
+                    mn.service.ip, mn.service.port,
+                    scriptOpPayout, inputsHash, payloadSig,
+                    int(mn.type),
+                    platform_node_id,
+                    int(mn.platform_p2p_port),
+                    int(mn.platform_http_port)
+                )
+            except TypeError:
+                tx = DashProUpServTx(
+                    2, bfh(mn.protx_hash)[::-1],
+                    mn.service.ip, mn.service.port,
+                    scriptOpPayout, inputsHash, payloadSig,
+                    int(mn.type)
+                )
+        else:
+            tx = DashProUpServTx(
+                2, bfh(mn.protx_hash)[::-1],
+                mn.service.ip, mn.service.port,
+                scriptOpPayout, inputsHash, payloadSig,
+                int(mn.type)
+            )
         return tx
 
     def prepare_pro_up_reg_tx(self, mn):
-        '''Prepare and return ProUpRegTx from ProTxMN alias'''
+        '''Prepare and return ProUpRegTx from ProTxMN'''
         if not mn.protx_hash:
             raise ProRegTxExc('Masternode has no proTxHash')
 
@@ -358,13 +518,15 @@ class ProTxManager(Logger):
         if not is_b58_address(mn.payout_address):
             raise ProRegTxExc('Payout address is not address')
 
-        scriptPayout = bfh(address_to_script(mn.payout_address))
+        scriptPayout = _script_from_address(mn.payout_address)
         PubKeyOperator = bfh(mn.pubkey_operator)
         KeyIdVoting = b58_address_to_hash160(mn.voting_addr)[1]
 
-        tx = DashProUpRegTx(2, bfh(mn.protx_hash)[::-1], mn.mode,
-                            PubKeyOperator, KeyIdVoting, scriptPayout,
-                            b'\x00'*32, b'\x00'*65)
+        tx = DashProUpRegTx(
+            2, bfh(mn.protx_hash)[::-1], mn.mode,
+            PubKeyOperator, KeyIdVoting, scriptPayout,
+            b'\x00' * 32, b'\x00' * 65
+        )
         return tx
 
     def prepare_pro_up_rev_tx(self, alias, reason):
@@ -382,8 +544,10 @@ class ProTxManager(Logger):
         if not isinstance(reason, int) or not 0 <= reason <= 3:
             raise ProRegTxExc('Reason must be integer in range 0-3')
 
-        tx = DashProUpRevTx(1, bfh(mn.protx_hash)[::-1], reason,
-                            b'\x00'*32, b'\x00'*96)
+        tx = DashProUpRevTx(
+            1, bfh(mn.protx_hash)[::-1], reason,
+            b'\x00' * 32, b'\x00' * 96
+        )
         return tx
 
     def update_mn_from_sml_entry(self, mn, sml_entry):

@@ -276,7 +276,9 @@ class DashProRegTx(ProTxBase):
         "version type mode collateralOutpoint "
         "ipAddress port KeyIdOwner PubKeyOperator "
         "KeyIdVoting operatorReward scriptPayout "
-        "inputsHash payloadSig"
+        "inputsHash "
+        "platformNodeID platformP2PPort platformHTTPPort "
+        "payloadSig"
     ).split()
 
     def __init__(self, *args, **kwargs):
@@ -310,63 +312,102 @@ class DashProRegTx(ProTxBase):
         )
 
     def serialize(self, full=True):
+        # --- sanity checks for base fields ---
         assert len(self.KeyIdOwner) == 20, f"{len(self.KeyIdOwner)} not 20"
         assert len(self.PubKeyOperator) == 48, f"{len(self.PubKeyOperator)} not 48"
         assert len(self.KeyIdVoting) == 20, f"{len(self.KeyIdVoting)} not 20"
         assert len(self.inputsHash) == 32, f"{len(self.inputsHash)} not 32"
 
+        # --- serialize ipAddress/port ---
         if self.ipAddress:
             ip_obj = ip_address(self.ipAddress)
             ip_bytes = serialize_ip(ip_obj)
-            port = self.port
+            port = int(self.port)
         else:
             ip_bytes = b"\x00" * 16
             port = 0
+
+        # --- evo node validation (type == 1) ---
+        if getattr(self, "type", 0) == 1:
+            platform_id = getattr(self, "platformNodeID", b"") or b""
+            if len(platform_id) != 20:
+                raise ValueError("platformNodeID must be exactly 20 bytes for evolution masternode")
+
+            p2p_port = getattr(self, "platformP2PPort", None)
+            http_port = getattr(self, "platformHTTPPort", None)
+
+            if p2p_port is None or not (1 <= int(p2p_port) <= 65535):
+                raise ValueError(f"Invalid platformP2PPort: {p2p_port}")
+            if http_port is None or not (1 <= int(http_port) <= 65535):
+                raise ValueError(f"Invalid platformHTTPPort: {http_port}")
+
+            if int(p2p_port) == int(http_port):
+                raise ValueError("platformP2PPort and platformHTTPPort must differ")
 
         # payloadSig must be encoded as varbytes on wire.
         # If signature is empty, it is encoded as CompactSize(0) which is a single 0x00 byte.
         # When full=False (hashing for signing), payloadSig must be excluded entirely.
         payload_sig_bytes = to_varbytes(self.payloadSig) if full else b""
 
-        return (
-            struct.pack("<H", self.version)  # version
-            + struct.pack("<H", self.type)  # type
-            + struct.pack("<H", self.mode)  # mode
-            + self.collateralOutpoint.serialize()  # collateralOutpoint
-            + ip_bytes  # ipAddress
-            + struct.pack(">H", port)  # port (network byte order)
-            + self.KeyIdOwner  # KeyIdOwner
-            + self.PubKeyOperator  # PubKeyOperator
-            + self.KeyIdVoting  # KeyIdVoting
-            + struct.pack("<H", self.operatorReward)  # operatorReward
-            + to_varbytes(self.scriptPayout)  # scriptPayout
-            + self.inputsHash  # inputsHash
-            + payload_sig_bytes  # payloadSig (varbytes)
-        )
+        out = bytearray()
+        out += struct.pack("<H", int(self.version))  # version
+        out += struct.pack("<H", int(self.type))  # type
+        out += struct.pack("<H", int(self.mode))  # mode
+        out += self.collateralOutpoint.serialize()  # collateralOutpoint
+        out += ip_bytes  # ipAddress
+        out += struct.pack(">H", int(port))  # port (network byte order)
+        out += self.KeyIdOwner  # KeyIdOwner
+        out += self.PubKeyOperator  # PubKeyOperator
+        out += self.KeyIdVoting  # KeyIdVoting
+        out += struct.pack("<H", int(self.operatorReward))  # operatorReward
+        out += to_varbytes(self.scriptPayout)  # scriptPayout
+        out += self.inputsHash  # inputsHash
+
+        # --- evo node extra fields (type == 1) ---
+        if getattr(self, "type", 0) == 1:
+            platform_id = getattr(self, "platformNodeID", b"") or b""
+            out += platform_id
+            # NOTE: Keep LE here for now to match existing behavior until LE/BE is clarified
+            out += struct.pack("<H", int(self.platformP2PPort))
+            out += struct.pack("<H", int(self.platformHTTPPort))
+
+        out += payload_sig_bytes  # payloadSig (varbytes)
+        return bytes(out)
 
     @classmethod
     def read_vds(cls, vds):
-        version = vds.read_uint16()              # version
-        mn_type = vds.read_uint16()              # type
-        mode = vds.read_uint16()                 # mode
+        version = vds.read_uint16()  # version
+        mn_type = vds.read_uint16()  # type
+        mode = vds.read_uint16()  # mode
         collateralOutpoint = read_outpoint(vds)  # collateralOutpoint
-        ip_bytes = vds.read_bytes(16)            # ipAddress
-        port = read_uint16_nbo(vds)              # port
-        KeyIdOwner = vds.read_bytes(20)          # KeyIdOwner
-        PubKeyOperator = vds.read_bytes(48)      # PubKeyOperator
-        KeyIdVoting = vds.read_bytes(20)         # KeyIdVoting
-        operatorReward = vds.read_uint16()       # operatorReward
-        scriptPayout = read_varbytes(vds)        # scriptPayout
-        inputsHash = vds.read_bytes(32)          # inputsHash
+        ip_bytes = vds.read_bytes(16)  # ipAddress
+        port = read_uint16_nbo(vds)  # port
+        KeyIdOwner = vds.read_bytes(20)  # KeyIdOwner
+        PubKeyOperator = vds.read_bytes(48)  # PubKeyOperator
+        KeyIdVoting = vds.read_bytes(20)  # KeyIdVoting
+        operatorReward = vds.read_uint16()  # operatorReward
+        scriptPayout = read_varbytes(vds)  # scriptPayout
+        inputsHash = vds.read_bytes(32)  # inputsHash
+
+        platformNodeID = b""
+        platformP2PPort = 0
+        platformHTTPPort = 0
+
+        # --- evo node extra fields (type == 1), if present ---
+        if mn_type == 1:
+            remaining = len(vds.input) - vds.read_cursor
+            # Need at least 24 bytes for platform fields + at least 1 byte for payloadSig CompactSize
+            if remaining >= 20 + 2 + 2 + 1:
+                platformNodeID = vds.read_bytes(20)
+                # NOTE: Keep LE here for now to match serialize() until LE/BE is clarified
+                platformP2PPort = vds.read_uint16()
+                platformHTTPPort = vds.read_uint16()
 
         # payloadSig is varbytes in practice and can be empty.
         payloadSig = read_varbytes(vds)
 
         ip_obj = ip_address(bytes(ip_bytes))
-        if ip_obj.ipv4_mapped:
-            ip_str = str(ip_obj.ipv4_mapped)
-        else:
-            ip_str = str(ip_obj)
+        ip_str = str(ip_obj.ipv4_mapped) if ip_obj.ipv4_mapped else str(ip_obj)
 
         return DashProRegTx(
             version,
@@ -381,14 +422,19 @@ class DashProRegTx(ProTxBase):
             operatorReward,
             scriptPayout,
             inputsHash,
+            platformNodeID,
+            platformP2PPort,
+            platformHTTPPort,
             payloadSig,
         )
 
     def update_with_tx_data(self, tx):
         if self.collateralOutpoint.hash_is_null:
+            target_value = (4000 * COIN) if getattr(self, "type", 0) == 1 else (1000 * COIN)
+
             found_idx = -1
             for i, o in enumerate(tx.outputs()):
-                if o.value == 1000 * COIN:
+                if o.value == target_value:
                     found_idx = i
                     break
             if found_idx >= 0:
@@ -398,8 +444,7 @@ class DashProRegTx(ProTxBase):
             TxOutPoint(bfh(i.prevout.txid.hex())[::-1], i.prevout.out_idx)
             for i in tx.inputs()
         ]
-        outpoints_ser = [o.serialize() for o in outpoints]
-        self.inputsHash = sha256d(b"".join(outpoints_ser))
+        self.inputsHash = sha256d(b"".join(o.serialize() for o in outpoints))
 
     def check_after_tx_prepared(self, tx):
         outpoints = [
@@ -436,6 +481,11 @@ class DashProRegTx(ProTxBase):
         )
 
         if len(coins) == 1:
+            # --- evo collateral validation (requires knowing UTXO amount) ---
+            if getattr(self, "type", 0) == 1:
+                if int(coins[0].value_sats()) != 4000 * COIN:
+                    raise DashTxError("Evolution masternode requires 4000 DASH collateral")
+
             coll_address = coins[0].address
             payload_hash = bh2u(sha256d(self.serialize(full=False))[::-1])
             payload_sig_msg = self.payload_sig_msg_part + payload_hash

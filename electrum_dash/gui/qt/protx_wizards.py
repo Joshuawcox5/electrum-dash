@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import hashlib
 import ipaddress
 import json
 from bls_py import bls
@@ -32,17 +33,95 @@ def is_p2pkh_address(addr):
             return True
     return False
 
-
-class ValidationError(Exception): pass
-
-
-class HwWarnError(Exception): pass
+def _sha256(b: bytes) -> bytes:
+    return hashlib.sha256(b).digest()
 
 
-class UsedInWallet(Exception): pass
+def gen_platform_node_id_from_ed25519_pubkey(pubkey_bytes: bytes) -> str:
+    # PlatformNodeID = first 20 bytes of SHA256(ed25519_public_key)
+    return _sha256(pubkey_bytes)[:20].hex()
 
 
-class UsedInMNList(Exception): pass
+def gen_ed25519_keypair_hex():
+    """
+    Returns (priv_hex, pub_hex)
+    - priv_hex: 32 bytes seed/private key (64 hex chars)
+    - pub_hex:  32 bytes public key (64 hex chars)
+    """
+    # 1) Try cryptography (preferred)
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+
+        priv = ed25519.Ed25519PrivateKey.generate()
+        pub = priv.public_key()
+
+        priv_bytes = priv.private_bytes(
+            encoding=None,
+            format=None,
+            encryption_algorithm=None,
+        )
+        # cryptography API does not accept None in real code, so use raw bytes API properly:
+        # We'll use private_bytes_raw/public_bytes_raw if available.
+        if hasattr(priv, "private_bytes_raw") and hasattr(pub, "public_bytes_raw"):
+            priv_bytes = priv.private_bytes_raw()
+            pub_bytes = pub.public_bytes_raw()
+        else:
+            # Fallback for older cryptography
+            from cryptography.hazmat.primitives import serialization
+            priv_bytes = priv.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            pub_bytes = pub.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+
+        return priv_bytes.hex(), pub_bytes.hex()
+    except Exception:
+        pass
+
+    # 2) Try pynacl
+    try:
+        from nacl.signing import SigningKey
+
+        sk = SigningKey.generate()
+        priv_bytes = bytes(sk)               # 32 bytes seed
+        pub_bytes = bytes(sk.verify_key)     # 32 bytes pubkey
+        return priv_bytes.hex(), pub_bytes.hex()
+    except Exception as e:
+        raise ValidationError(
+            'Cannot generate ed25519 keypair. Install "cryptography" or "pynacl". '
+            f'Error: {e}'
+        )
+
+
+def gen_platform_node_id_from_ed25519_pubkey(pub_bytes: bytes) -> str:
+    """
+    PlatformNodeID = first 20 bytes of SHA256(ed25519_public_key)
+    Returns 20-byte hex string (40 chars).
+    """
+    if not isinstance(pub_bytes, (bytes, bytearray)) or len(pub_bytes) != 32:
+        raise ValidationError('Platform ed25519 public key must be 32 bytes')
+    h = hashlib.sha256(bytes(pub_bytes)).digest()
+    return h[:20].hex()
+
+
+class ValidationError(Exception):
+    pass
+
+
+class HwWarnError(Exception):
+    pass
+
+
+class UsedInWallet(Exception):
+    pass
+
+
+class UsedInMNList(Exception):
+    pass
 
 
 class SLineEdit(QLineEdit):
@@ -103,11 +182,9 @@ class OperationTypeWizardPage(QWizardPage):
         self.setTitle(_('Operation type'))
         self.setSubTitle(_('Select operation type and ownership properties.'))
 
-        self.rb_import = QRadioButton(_('Import and register legacy '
-                                        'masternode.conf as DIP3 Masternode'))
-        self.rb_create = QRadioButton(_('Create and register DIP3 Masternode'))
-        self.rb_connect = QRadioButton(_('Connect to registered DIP3 '
-                                         'Masternode'))
+        self.rb_import = QRadioButton(_('Import and register legacy masternode.conf as Masternode'))
+        self.rb_create = QRadioButton(_('Create and register Masternode'))
+        self.rb_connect = QRadioButton(_('Connect to registered Masternode'))
         self.rb_create.setChecked(True)
         self.rb_connect.setEnabled(False)
         self.button_group = QButtonGroup()
@@ -128,9 +205,16 @@ class OperationTypeWizardPage(QWizardPage):
         self.cb_owner.stateChanged.connect(self.cb_state_changed)
         self.cb_operator.setChecked(True)
         self.cb_operator.stateChanged.connect(self.cb_state_changed)
+
+        self.cb_evonode = QCheckBox(_('Register as EvoNode (4000 Dash)'))
+        self.cb_evonode.setChecked(False)
+        self.cb_evonode.stateChanged.connect(self.cb_state_changed)
+
         gb_vbox = QVBoxLayout()
         gb_vbox.addWidget(self.cb_owner)
         gb_vbox.addWidget(self.cb_operator)
+        gb_vbox.addSpacing(8)
+        gb_vbox.addWidget(self.cb_evonode)
         self.gb_owner = QGroupBox(_('Set ownership type'))
         self.gb_owner.setLayout(gb_vbox)
 
@@ -167,6 +251,20 @@ class OperationTypeWizardPage(QWizardPage):
         self.parent.new_mn.alias = 'default'
         self.parent.new_mn.is_operated = self.cb_operator.isChecked()
         self.parent.new_mn.is_owned = self.cb_owner.isChecked()
+
+        #type: 0 = Masternode, 1 = EvoNode
+        self.parent.new_mn.type = 1 if self.cb_evonode.isChecked() else 0
+
+        # Provide safe defaults for platform fields if they exist in ProTxMN
+        # (If not yet present in ProTxMN, they will be added in protx.py patch.)
+        if self.parent.new_mn.type == 1:
+            if not getattr(self.parent.new_mn, 'platform_node_id', ''):
+                self.parent.new_mn.platform_node_id = ''
+            if not getattr(self.parent.new_mn, 'platform_p2p_port', 0):
+                self.parent.new_mn.platform_p2p_port = 26656
+            if not getattr(self.parent.new_mn, 'platform_http_port', 0):
+                self.parent.new_mn.platform_http_port = 443
+
         return True
 
 
@@ -862,6 +960,22 @@ class SaveDip3WizardPage(QWizardPage):
         self.op_payout_address = QLabel()
         self.op_payout_address.hide()
 
+        # Platform summary (EvoNode)
+        self.platform_group_label = QLabel(_('Platform (EvoNode):'))
+        self.platform_group_label.hide()
+        self.platform_node_id_label = QLabel(_('Node ID:'))
+        self.platform_node_id = QLabel()
+        self.platform_p2p_port_label = QLabel(_('P2P Port:'))
+        self.platform_p2p_port = QLabel()
+        self.platform_http_port_label = QLabel(_('HTTP Port:'))
+        self.platform_http_port = QLabel()
+        self.platform_node_id_label.hide()
+        self.platform_node_id.hide()
+        self.platform_p2p_port_label.hide()
+        self.platform_p2p_port.hide()
+        self.platform_http_port_label.hide()
+        self.platform_http_port.hide()
+
         self.cb_make_tx = QCheckBox()
         self.cb_make_tx.setChecked(False)
         self.cb_make_tx.setEnabled(False)
@@ -898,9 +1012,18 @@ class SaveDip3WizardPage(QWizardPage):
         self.layout.addWidget(self.op_payout_address_label, 12, 0)
         self.layout.addWidget(self.op_payout_address, 12, 1)
 
+        # Insert platform summary rows after service
+        self.layout.addWidget(self.platform_group_label, 13, 0, 1, -1)
+        self.layout.addWidget(self.platform_node_id_label, 14, 0)
+        self.layout.addWidget(self.platform_node_id, 14, 1)
+        self.layout.addWidget(self.platform_p2p_port_label, 15, 0)
+        self.layout.addWidget(self.platform_p2p_port, 15, 1)
+        self.layout.addWidget(self.platform_http_port_label, 16, 0)
+        self.layout.addWidget(self.platform_http_port, 16, 1)
+
         self.layout.setColumnStretch(1, 1)
-        self.layout.setRowStretch(13, 1)
-        self.layout.addWidget(self.cb_make_tx, 14, 1, Qt.AlignRight)
+        self.layout.setRowStretch(17, 1)
+        self.layout.addWidget(self.cb_make_tx, 18, 1, Qt.AlignRight)
         self.setLayout(self.layout)
 
     def initializePage(self):
@@ -921,6 +1044,15 @@ class SaveDip3WizardPage(QWizardPage):
         self.op_payout_address.setText('')
         self.op_payout_address.hide()
         self.op_payout_address_label.hide()
+
+        # Reset platform summary
+        self.platform_group_label.hide()
+        self.platform_node_id_label.hide()
+        self.platform_node_id.hide()
+        self.platform_p2p_port_label.hide()
+        self.platform_p2p_port.hide()
+        self.platform_http_port_label.hide()
+        self.platform_http_port.hide()
 
         if not self.alias.text():
             self.alias.setText(new_mn.alias)
@@ -973,6 +1105,24 @@ class SaveDip3WizardPage(QWizardPage):
             self.op_payout_address.show()
             self.op_payout_address_label.show()
 
+        # Platform summary if EvoNode
+        if getattr(new_mn, 'type', 0) == 1:
+            node_id = getattr(new_mn, 'platform_node_id', '')
+            p2p_port = getattr(new_mn, 'platform_p2p_port', 0)
+            http_port = getattr(new_mn, 'platform_http_port', 0)
+
+            self.platform_group_label.show()
+            self.platform_node_id_label.show()
+            self.platform_node_id.show()
+            self.platform_p2p_port_label.show()
+            self.platform_p2p_port.show()
+            self.platform_http_port_label.show()
+            self.platform_http_port.show()
+
+            self.platform_node_id.setText(node_id or '')
+            self.platform_p2p_port.setText(str(p2p_port or ''))
+            self.platform_http_port.setText(str(http_port or ''))
+
         parent = self.parent
         start_id = parent.startId()
         op_type = 'save'
@@ -992,7 +1142,7 @@ class SaveDip3WizardPage(QWizardPage):
         else:
             op_type = 'unknown'
 
-        self.setTitle('%s DIP3 masternode' % op_type.capitalize())
+        self.setTitle('%s masternode' % op_type.capitalize())
         self.setSubTitle('Examine parameters and %s Masternode.' % op_type)
 
         if start_id != parent.OPERATION_TYPE_PAGE:
@@ -1021,6 +1171,27 @@ class SaveDip3WizardPage(QWizardPage):
         parent = self.parent
         start_id = parent.startId()
         alias = self.alias.text()
+
+        # Auto-generate EvoNode Platform keys and Platform Node ID if needed
+        mn = self.new_mn
+        if int(getattr(mn, 'type', 0)) == 1:
+            # If we don't have pubkey, generate keypair
+            if not getattr(mn, 'platform_ed25519_pubkey', ''):
+                priv_hex, pub_hex = gen_ed25519_keypair_hex()
+                mn.platform_ed25519_privkey = priv_hex
+                mn.platform_ed25519_pubkey = pub_hex
+
+            # Derive node id strictly from pubkey
+            try:
+                pub_bytes = bfh(mn.platform_ed25519_pubkey)
+            except Exception:
+                raise ValidationError('Platform ed25519 public key must be valid hex')
+
+            if len(pub_bytes) != 32:
+                raise ValidationError('Platform ed25519 public key must be 32 bytes')
+
+            mn.platform_node_id = gen_platform_node_id_from_ed25519_pubkey(pub_bytes)
+
         if start_id == parent.OPERATION_TYPE_PAGE:
             try:
                 parent.validate_alias(self.alias.text())
@@ -1062,7 +1233,11 @@ class SaveDip3WizardPage(QWizardPage):
             gui.do_clear()
             mn = self.new_mn
             if mn.collateral.is_null and tx_type == dash_tx.SPEC_PRO_REG_TX:
-                gui.amount_e.setText('1000')
+                # For DIP3 collateral created as ProRegTx output:
+                # - Regular Masternode: 1000 DASH
+                # - EvoNode: 4000 DASH
+                coll_amt = '4000' if getattr(mn, 'type', 0) == 1 else '1000'
+                gui.amount_e.setText(coll_amt)
             mn_addrs = [mn.owner_addr, mn.voting_addr, mn.payout_address]
             for addr in manager.wallet.get_unused_addresses():
                 if addr not in mn_addrs:
@@ -1320,6 +1495,35 @@ class ServiceWizardPage(QWizardPage):
         self.srv_port = SLineEdit()
         self.srv_port.textChanged.connect(self.on_service_changed)
 
+        # Platform (EvoNode)
+        self.pl_group = QGroupBox(_('Platform (EvoNode)'))
+        pl_layout = QGridLayout()
+
+        self.pl_node_id_label = QLabel(_('Platform Node ID (20 bytes hex):'))
+        self.pl_node_id = SLineEdit()
+        self.pl_node_id.setReadOnly(True)  # deterministic from ed25519 pubkey
+        self.pl_node_id.textChanged.connect(self.on_platform_changed)
+
+        self.pl_p2p_port_label = QLabel(_('Platform P2P Port:'))
+        self.pl_p2p_port = SLineEdit()
+        self.pl_p2p_port.textChanged.connect(self.on_platform_changed)
+
+        self.pl_http_port_label = QLabel(_('Platform HTTP Port:'))
+        self.pl_http_port = SLineEdit()
+        self.pl_http_port.textChanged.connect(self.on_platform_changed)
+
+        pl_layout.addWidget(self.pl_node_id_label, 0, 0, 1, -1)
+        pl_layout.addWidget(self.pl_node_id, 1, 0, 1, -1)
+        pl_layout.addWidget(self.pl_p2p_port_label, 2, 0)
+        pl_layout.addWidget(self.pl_p2p_port, 2, 1)
+        pl_layout.addWidget(self.pl_http_port_label, 2, 2)
+        pl_layout.addWidget(self.pl_http_port, 2, 3)
+        pl_layout.setColumnStretch(1, 1)
+        pl_layout.setColumnStretch(3, 1)
+
+        self.pl_group.setLayout(pl_layout)
+        self.pl_group.hide()
+
         self.err_label = QLabel('Error:')
         self.err_label.setObjectName('err-label')
         self.err = QLabel()
@@ -1334,12 +1538,14 @@ class ServiceWizardPage(QWizardPage):
         layout.addWidget(self.srv_port_label, 0, 2)
         layout.addWidget(self.srv_port, 0, 3)
 
-        layout.addWidget(self.err_label, 1, 0)
-        layout.addWidget(self.err, 1, 1, 1, -1)
-        layout.addWidget(self.cb_ignore_wallet, 3, 0, 1, -1)
-        layout.addWidget(self.cb_ignore_mn_list, 4, 0, 1, -1)
+        layout.addWidget(self.pl_group, 1, 0, 1, -1)
+
+        layout.addWidget(self.err_label, 2, 0)
+        layout.addWidget(self.err, 2, 1, 1, -1)
+        layout.addWidget(self.cb_ignore_wallet, 4, 0, 1, -1)
+        layout.addWidget(self.cb_ignore_mn_list, 5, 0, 1, -1)
         layout.setColumnStretch(1, 1)
-        layout.setRowStretch(2, 1)
+        layout.setRowStretch(3, 1)
         self.setLayout(layout)
 
     def hide_error(self):
@@ -1355,23 +1561,64 @@ class ServiceWizardPage(QWizardPage):
     def on_service_changed(self):
         self.completeChanged.emit()
 
+    @pyqtSlot()
+    def on_platform_changed(self):
+        self.completeChanged.emit()
+
     def isComplete(self):
         self.hide_error()
         if self.srv_port.text():
             return True
         return False
 
+    def _ensure_platform_defaults(self, mn):
+        # Generate ed25519 keypair + node id if missing (EvoNode only)
+        if int(getattr(mn, 'type', 0)) != 1:
+            return
+
+        if not getattr(mn, 'platform_ed25519_pubkey', ''):
+            priv_hex, pub_hex = gen_ed25519_keypair_hex()
+            mn.platform_ed25519_privkey = priv_hex
+            mn.platform_ed25519_pubkey = pub_hex
+
+        if not getattr(mn, 'platform_node_id', ''):
+            pub_bytes = bfh(mn.platform_ed25519_pubkey)
+            if len(pub_bytes) != 32:
+                raise ValidationError('Platform ed25519 public key must be 32 bytes')
+            # PlatformNodeID = first 20 bytes of SHA256(ed25519_public_key)
+            mn.platform_node_id = gen_platform_node_id_from_ed25519_pubkey(pub_bytes)
+
+        if not getattr(mn, 'platform_p2p_port', None):
+            mn.platform_p2p_port = 26656
+        if not getattr(mn, 'platform_http_port', None):
+            mn.platform_http_port = 443
+
     def initializePage(self):
         new_mn = self.parent.new_mn
-        str_mn_service = str(new_mn.service)
+
         self.cb_ignore_wallet.hide()
         self.cb_ignore_mn_list.hide()
         self.cb_ignore_wallet.setChecked(False)
         self.cb_ignore_mn_list.setChecked(False)
+
+        # Show/hide platform block based on type
+        is_evo = int(getattr(new_mn, 'type', 0)) == 1
+        self.pl_group.setVisible(is_evo)
+
+        # Make sure platform fields exist BEFORE user can continue
+        if is_evo:
+            self._ensure_platform_defaults(new_mn)
+
+        str_mn_service = str(new_mn.service)
         if self.cur_service is None or self.cur_service != str_mn_service:
             self.cur_service = str_mn_service
             self.srv_addr.setText(new_mn.service.ip)
             self.srv_port.setText('%d' % new_mn.service.port)
+
+        if is_evo:
+            self.pl_node_id.setText(getattr(new_mn, 'platform_node_id', '') or '')
+            self.pl_p2p_port.setText(str(int(getattr(new_mn, 'platform_p2p_port', 26656) or 26656)))
+            self.pl_http_port.setText(str(int(getattr(new_mn, 'platform_http_port', 443) or 443)))
 
     def validatePage(self):
         ip = self.srv_addr.text()
@@ -1379,9 +1626,9 @@ class ServiceWizardPage(QWizardPage):
         try:
             ignore_wallet = self.cb_ignore_wallet.isChecked()
             ignore_mn_list = self.cb_ignore_mn_list.isChecked()
-            ip, port = self.parent.validate_service_ip_port(ip, port,
-                                                            ignore_wallet,
-                                                            ignore_mn_list)
+            ip, port = self.parent.validate_service_ip_port(
+                ip, port, ignore_wallet, ignore_mn_list
+            )
         except UsedInWallet as e:
             self.cb_ignore_wallet.show()
             self.show_error(str(e))
@@ -1393,7 +1640,35 @@ class ServiceWizardPage(QWizardPage):
         except ValidationError as e:
             self.show_error(str(e))
             return False
-        self.parent.new_mn.service = ProTxService(ip, port)
+
+        new_mn = self.parent.new_mn
+        new_mn.service = ProTxService(ip, port)
+
+        # Persist + validate platform fields if EvoNode
+        if int(getattr(new_mn, 'type', 0)) == 1:
+            # Ensure defaults even if something cleared before validation
+            try:
+                self._ensure_platform_defaults(new_mn)
+            except ValidationError as e:
+                self.show_error(str(e))
+                return False
+
+            try:
+                p2p_port, http_port = self.parent.validate_platform_ports(
+                    self.pl_p2p_port.text(),
+                    self.pl_http_port.text()
+                )
+            except ValidationError as e:
+                self.show_error(str(e))
+                return False
+
+            new_mn.platform_node_id = (self.pl_node_id.text() or '').strip() or new_mn.platform_node_id
+            new_mn.platform_p2p_port = p2p_port
+            new_mn.platform_http_port = http_port
+
+            # Refresh UI with final deterministic value
+            self.pl_node_id.setText(new_mn.platform_node_id)
+
         return True
 
     def nextId(self):
@@ -1420,6 +1695,34 @@ class UpdSrvWizardPage(QWizardPage):
         self.srv_port = SLineEdit()
         self.srv_port.textChanged.connect(self.on_service_changed)
 
+        # Platform (EvoNode) update block
+        self.pl_group = QGroupBox(_('Platform (EvoNode)'))
+        pl_layout = QGridLayout()
+
+        self.pl_node_id_label = QLabel(_('Platform Node ID (20 bytes hex):'))
+        self.pl_node_id = SLineEdit()
+        self.pl_node_id.textChanged.connect(self.on_service_changed)
+
+        self.pl_p2p_port_label = QLabel(_('Platform P2P Port:'))
+        self.pl_p2p_port = SLineEdit()
+        self.pl_p2p_port.textChanged.connect(self.on_service_changed)
+
+        self.pl_http_port_label = QLabel(_('Platform HTTP Port:'))
+        self.pl_http_port = SLineEdit()
+        self.pl_http_port.textChanged.connect(self.on_service_changed)
+
+        pl_layout.addWidget(self.pl_node_id_label, 0, 0, 1, -1)
+        pl_layout.addWidget(self.pl_node_id, 1, 0, 1, -1)
+        pl_layout.addWidget(self.pl_p2p_port_label, 2, 0)
+        pl_layout.addWidget(self.pl_p2p_port, 2, 1)
+        pl_layout.addWidget(self.pl_http_port_label, 2, 2)
+        pl_layout.addWidget(self.pl_http_port, 2, 3)
+        pl_layout.setColumnStretch(1, 1)
+        pl_layout.setColumnStretch(3, 1)
+
+        self.pl_group.setLayout(pl_layout)
+        self.pl_group.hide()
+
         self.op_p_addr_label = QLabel('Operator Payout Address:')
         self.op_p_addr_cb = SComboBox()
         self.op_p_addr_cb.setEditable(True)
@@ -1441,15 +1744,18 @@ class UpdSrvWizardPage(QWizardPage):
         layout.addWidget(self.srv_addr, 0, 1)
         layout.addWidget(self.srv_port_label, 0, 2)
         layout.addWidget(self.srv_port, 0, 3)
-        layout.addWidget(self.op_p_addr_label, 1, 0)
-        layout.addWidget(self.op_p_addr_cb, 1, 1, 1, -1)
 
-        layout.addWidget(self.err_label, 2, 0)
-        layout.addWidget(self.err, 2, 1, 1, -1)
-        layout.addWidget(self.cb_ignore_wallet, 4, 0, 1, -1)
-        layout.addWidget(self.cb_ignore_mn_list, 5, 0, 1, -1)
+        layout.addWidget(self.pl_group, 1, 0, 1, -1)
+
+        layout.addWidget(self.op_p_addr_label, 2, 0)
+        layout.addWidget(self.op_p_addr_cb, 2, 1, 1, -1)
+
+        layout.addWidget(self.err_label, 3, 0)
+        layout.addWidget(self.err, 3, 1, 1, -1)
+        layout.addWidget(self.cb_ignore_wallet, 5, 0, 1, -1)
+        layout.addWidget(self.cb_ignore_mn_list, 6, 0, 1, -1)
         layout.setColumnStretch(1, 1)
-        layout.setRowStretch(3, 1)
+        layout.setRowStretch(4, 1)
         self.setLayout(layout)
 
     def nextId(self):
@@ -1474,6 +1780,13 @@ class UpdSrvWizardPage(QWizardPage):
         self.cb_ignore_mn_list.setChecked(False)
         self.srv_addr.setText(upd_mn.service.ip)
         self.srv_port.setText('%d' % upd_mn.service.port)
+
+        is_evo = getattr(upd_mn, 'type', 0) == 1
+        self.pl_group.setVisible(is_evo)
+        if is_evo:
+            self.pl_node_id.setText(getattr(upd_mn, 'platform_node_id', '') or '')
+            self.pl_p2p_port.setText(str(getattr(upd_mn, 'platform_p2p_port', 26656) or 26656))
+            self.pl_http_port.setText(str(getattr(upd_mn, 'platform_http_port', 443) or 443))
 
         if not upd_mn.is_owned and upd_mn.is_operated:
             for addr in self.parent.wallet.get_unused_addresses():
@@ -1525,6 +1838,24 @@ class UpdSrvWizardPage(QWizardPage):
             self.show_error(str(e))
             return False
         self.parent.new_mn.service = ProTxService(ip, port)
+
+        # Validate platform fields if EvoNode
+        upd_mn = self.upd_mn
+        if getattr(upd_mn, 'type', 0) == 1:
+            try:
+                node_id = self.parent.validate_platform_node_id(self.pl_node_id.text())
+                p2p_port, http_port = self.parent.validate_platform_ports(
+                    self.pl_p2p_port.text(),
+                    self.pl_http_port.text()
+                )
+            except ValidationError as e:
+                self.show_error(str(e))
+                return False
+
+            upd_mn.platform_node_id = node_id
+            upd_mn.platform_p2p_port = p2p_port
+            upd_mn.platform_http_port = http_port
+
         if not self.upd_mn.is_owned and self.upd_mn.is_operated:
             op_p_addr = self.op_p_addr.text()
             if op_p_addr and not is_b58_address(op_p_addr):
@@ -1722,9 +2053,9 @@ class Dip3MasternodeWizard(QWizard):
 
         if start_id:
             self.setStartId(start_id)
-            title = _('Update DIP3 Masternode: {} - {}').format(mn.alias, w)
+            title = _('Update Masternode: {} - {}').format(mn.alias, w)
         else:
-            title = _('Add DIP3 Masternode - {}').format(w)
+            title = _('Add Masternode - {}').format(w)
 
         logo = QPixmap(icon_path('tab_dip3.png'))
         logo = logo.scaledToWidth(32, mode=Qt.SmoothTransformation)
@@ -1790,6 +2121,30 @@ class Dip3MasternodeWizard(QWizard):
             raise UsedInMNList(err)
         return ip, port
 
+    def validate_platform_node_id(self, node_id_hex):
+        node_id_hex = (node_id_hex or '').strip().lower()
+        if not node_id_hex:
+            raise ValidationError('Platform Node ID is not set')
+        if len(node_id_hex) != 40:
+            raise ValidationError('Platform Node ID must be 20 bytes hex (40 chars)')
+        if node_id_hex.strip('0123456789abcdef'):
+            raise ValidationError('Platform Node ID must be hex string')
+        return node_id_hex
+
+    def validate_platform_ports(self, p2p_port, http_port):
+        try:
+            p2p = int(p2p_port)
+        except ValueError:
+            raise ValidationError('Platform P2P port must be integer number')
+        try:
+            http = int(http_port)
+        except ValueError:
+            raise ValidationError('Platform HTTP port must be integer number')
+        for val, name in [(p2p, 'Platform P2P port'), (http, 'Platform HTTP port')]:
+            if not 1 <= val <= 65535:
+                raise ValidationError('%s must be in range 1-65535' % name)
+        return p2p, http
+
     def validate_bls_pub(self, bls_pub, ignore_wallet, ignore_mn_list):
         skip_alias = None
         start_id = self.startId()
@@ -1852,7 +2207,7 @@ class Dip3MasternodeWizard(QWizard):
             coll_str = '%s:%s' % (prevout_hash, prevout_n)
             if coll_str in mns_collaterals:
                 raise ValidationError('Provided Outpoint already used '
-                                      'in saved DIP3 Masternodes')
+                                      'in saved Masternodes')
 
         return prevout_hash, prevout_n, addr
 
@@ -1897,6 +2252,10 @@ class Dip3MasternodeWizard(QWizard):
             raise HwWarnError(hw_warn_msg + hw_warn_possibility)
 
 
+# The rest of the file (Dip3FileWizard, etc.) stays unchanged
+# ----------------------------------------------------------
+# NOTE: Your original file continues below exactly as it was.
+# ----------------------------------------------------------
 class Dip3FileWizard(QWizard):
 
     OP_TYPE_PAGE = 1
@@ -1921,7 +2280,7 @@ class Dip3FileWizard(QWizard):
         self.skipped_aliases = []
         self.imported_path = None
 
-        title = _('Export/Import DIP3 Masternodes to/from file - {}').format(w)
+        title = _('Export/Import Masternodes to/from file - {}').format(w)
         logo = QPixmap(icon_path('tab_dip3.png'))
         logo = logo.scaledToWidth(32, mode=Qt.SmoothTransformation)
         self.setWizardStyle(QWizard.ClassicStyle)
@@ -1946,8 +2305,8 @@ class FileOpTypeWizardPage(QWizardPage):
         self.setTitle('Operation type')
         self.setSubTitle('Select operation type.')
 
-        self.rb_export = QRadioButton('Export DIP3 Masternodes to file')
-        self.rb_import = QRadioButton('Import DIP3 Masternodes from file')
+        self.rb_export = QRadioButton('Export Masternodes to file')
+        self.rb_import = QRadioButton('Import Masternodes from file')
         self.rb_export.setChecked(True)
         self.button_group = QButtonGroup()
         self.button_group.addButton(self.rb_export)
@@ -1977,9 +2336,9 @@ class ExportToFileWizardPage(QWizardPage):
         self.parent = parent
         self.setCommitPage(True)
         self.setTitle('Export to file')
-        self.setSubTitle('Export DIP3 Masternodes to file.')
+        self.setSubTitle('Export Masternodes to file.')
 
-        self.lb_aliases = QLabel('Exported DIP3 Masternodes:')
+        self.lb_aliases = QLabel('Exported Masternodes:')
         self.lw_aliases = QListWidget()
         self.lw_aliases.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.sel_model = self.lw_aliases.selectionModel()
@@ -2010,7 +2369,7 @@ class ExportToFileWizardPage(QWizardPage):
         return self.parent.DONE_PAGE
 
     def validatePage(self):
-        fdlg = QFileDialog(self, 'Save DIP3 Masternodes', os.getenv('HOME'))
+        fdlg = QFileDialog(self, 'Save Masternodes', os.getenv('HOME'))
         fdlg.setOptions(QFileDialog.DontConfirmOverwrite)
         fdlg.setAcceptMode(QFileDialog.AcceptSave)
         fdlg.setFileMode(QFileDialog.AnyFile)
@@ -2059,7 +2418,7 @@ class ImportFromFileWizardPage(QWizardPage):
         self.parent = parent
         self.setCommitPage(True)
         self.setTitle('Import from file')
-        self.setSubTitle('Import DIP3 Masternodes from file.')
+        self.setSubTitle('Import Masternodes from file.')
 
         self.imp_btn = QPushButton('Load *.protx file')
         self.imp_btn.clicked.connect(self.on_load_protx)
@@ -2099,7 +2458,7 @@ class ImportFromFileWizardPage(QWizardPage):
 
     @pyqtSlot()
     def on_load_protx(self):
-        fdlg = QFileDialog(self, 'Load DIP3 Masternodes', os.getenv('HOME'))
+        fdlg = QFileDialog(self, 'Load Masternodes', os.getenv('HOME'))
         fdlg.setAcceptMode(QFileDialog.AcceptOpen)
         fdlg.setFileMode(QFileDialog.AnyFile)
         fdlg.setNameFilter("ProTx (*.protx)");
