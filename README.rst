@@ -4,7 +4,7 @@ Dash Electrum - Lightweight Dash wallet (4.1.7.7)
 ::
 
   Licence: MIT Licence
-  Author: Mikhail Pshenichnikov
+  Author: Joshua Cox
   Language: Python (>= 3.10)
   Homepage: https://dash-electrum.org/
 
